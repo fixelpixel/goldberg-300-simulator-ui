@@ -23,6 +23,7 @@ export interface InternalPhysicalState {
 export class SimulationIO implements SterilizerIO {
   private physical: InternalPhysicalState;
   private lastDt = 0;
+  private ambientTemp = 22;
 
   constructor(initial?: Partial<InternalPhysicalState>) {
     this.physical = {
@@ -59,10 +60,12 @@ export class SimulationIO implements SterilizerIO {
 
     // Простейшая модель нагрева парогенератора
     if (p.heaterOn && p.waterLevelPercent > 0) {
-      p.generatorTemperatureC += 2.2 * dtSec;
-      p.waterLevelPercent -= 0.03 * dtSec; // расход воды при нагреве
+      p.generatorTemperatureC += 2.5 * dtSec;
+      p.waterLevelPercent -= 0.04 * dtSec; // расход воды при нагреве
     } else {
-      p.generatorTemperatureC -= 0.35 * dtSec;
+      // медленное охлаждение к окружающей температуре
+      const cool = (p.generatorTemperatureC - this.ambientTemp) * 0.01 * dtSec;
+      p.generatorTemperatureC -= cool;
     }
 
     if (p.generatorTemperatureC < 20) p.generatorTemperatureC = 20;
@@ -73,29 +76,35 @@ export class SimulationIO implements SterilizerIO {
 
     // Заполнение камеры паром
     if (p.steamInletValveOpen) {
-      const delta = (p.generatorPressureMPa - p.chamberPressureMPa) * 0.65 * dtSec;
+      const delta = (p.generatorPressureMPa - p.chamberPressureMPa) * 0.7 * dtSec;
       p.chamberPressureMPa += delta;
-      p.chamberTemperatureC += 2.2 * dtSec;
+      // нагрев камеры стремится к температуре генератора
+      const target = Math.max(p.chamberTemperatureC, p.generatorTemperatureC - 5);
+      p.chamberTemperatureC += (target - p.chamberTemperatureC) * 0.04 * dtSec;
     }
 
     // Вакуум
     if (p.vacuumPumpOn) {
-      p.chamberPressureMPa -= 0.07 * dtSec;
+      p.chamberPressureMPa -= 0.08 * dtSec;
     }
 
     // Сброс
     if (p.steamExhaustValveOpen) {
-      p.chamberPressureMPa -= 0.1 * dtSec;
+      p.chamberPressureMPa -= 0.12 * dtSec;
     }
 
     // Охлаждение камеры
-    p.chamberTemperatureC -= 0.4 * dtSec;
+    p.chamberTemperatureC -= 0.45 * dtSec;
 
     if (p.chamberTemperatureC < 20) p.chamberTemperatureC = 20;
     if (p.chamberPressureMPa < -0.1) p.chamberPressureMPa = -0.1;
     if (p.chamberPressureMPa > 0.35) p.chamberPressureMPa = 0.35;
 
     if (p.waterLevelPercent < 0) p.waterLevelPercent = 0;
+
+    // Лёгкая утечка к атмосфере/окружающей среде
+    p.chamberPressureMPa += (0 - p.chamberPressureMPa) * 0.01 * dtSec;
+    p.chamberTemperatureC += (this.ambientTemp - p.chamberTemperatureC) * 0.01 * dtSec;
   }
 
   async readSensors() {

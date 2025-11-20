@@ -177,7 +177,8 @@ let currentProgram: ProgramConfig | null = null;
 let completedPrevacuums = 0;
 let currentCycleStart = 0;
 let maxTemp = 0;
-  let maxPressure = 0;
+let maxPressure = 0;
+let sterilizationTempLowSec = 0;
 
   function recordCycle(success: boolean) {
     if (!state.cycle.currentProgram) return;
@@ -216,6 +217,28 @@ let maxTemp = 0;
         open: sensors.doorOpen,
       },
     };
+  }
+
+  function validateSensors() {
+    const { chamber, generator } = state;
+    const invalid =
+      !Number.isFinite(chamber.pressureMPa) ||
+      !Number.isFinite(chamber.temperatureC) ||
+      !Number.isFinite(generator.pressureMPa) ||
+      !Number.isFinite(generator.temperatureC) ||
+      generator.waterLevelPercent < 0 ||
+      generator.waterLevelPercent > 110 ||
+      chamber.pressureMPa < -0.2 ||
+      chamber.pressureMPa > 0.5 ||
+      generator.pressureMPa < -0.2 ||
+      generator.pressureMPa > 0.5 ||
+      chamber.temperatureC < -10 ||
+      chamber.temperatureC > 200 ||
+      generator.temperatureC < -10 ||
+      generator.temperatureC > 200;
+    if (invalid) {
+      pushError('SENSOR_FAILURE', 'Некорректные показания датчиков');
+    }
   }
 
   function pushError(code: ErrorCode, message: string) {
@@ -290,8 +313,14 @@ let maxTemp = 0;
             vacuumPumpOn: false,
             steamExhaustValveOpen: false,
           });
+          if (state.chamber.temperatureC < program.setTempC - 3) {
+            sterilizationTempLowSec += dtSec;
+          } else {
+            sterilizationTempLowSec = 0;
+          }
           if (state.cycle.phaseElapsedSec >= program.sterilizationTimeSec) {
             await setPhase('DRYING', program.dryingTimeSec || 30);
+            sterilizationTempLowSec = 0;
           }
           break;
         }
@@ -343,6 +372,9 @@ let maxTemp = 0;
       }
       if (state.cycle.currentPhase === 'DRYING' && state.cycle.phaseElapsedSec > state.cycle.phaseTotalSec + 60) {
         pushError('HEATING_TIMEOUT', 'Сушка превысила допустимое время');
+      }
+      if (state.cycle.currentPhase === 'STERILIZATION' && sterilizationTempLowSec > 30) {
+        pushError('HEATING_TIMEOUT', 'Температура стерилизации держится ниже нормы');
       }
     }
     // Безопасность двери: если в цикле дверь открылась — авария
