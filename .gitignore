@@ -3,6 +3,10 @@
 .vscode/
 .idea/
 
+# Local drafts
+FINAL_ADJUSTMENT_DESIGN.md
+new_design_adjustments.html
+
 # Node / builds
 node_modules/
 dist/
