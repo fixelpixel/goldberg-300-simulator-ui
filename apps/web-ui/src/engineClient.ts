@@ -83,6 +83,7 @@ type EngineControls = {
 };
 
 export type EngineMode = 'local' | 'remote';
+type ConnectionStatus = 'local' | 'connecting' | 'connected' | 'disconnected' | 'fallback';
 
 export function useEngineSimulation(mode: EngineMode = 'local', wsUrl = 'ws://localhost:8080') {
   const engineRef = useRef<SterilizerEngine | null>(null);
@@ -90,11 +91,51 @@ export function useEngineSimulation(mode: EngineMode = 'local', wsUrl = 'ws://lo
   const wsRef = useRef<WebSocket | null>(null);
   const [state, setState] = useState<SterilizerState | null>(null);
   const [ready, setReady] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState<'local' | 'connecting' | 'connected' | 'disconnected'>('local');
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('local');
 
   const programs = useMemo(() => PROGRAMS, []);
 
   useEffect(() => {
+    let cleanupLocal: (() => void) | undefined;
+
+    const startLocalSim = () => {
+      const initialPhysical: Partial<InternalPhysicalState> = {
+        doorLocked: true,
+        doorOpen: false,
+        chamberTemperatureC: 25,
+        generatorTemperatureC: 25,
+      };
+      const io = new SimulationIO(initialPhysical);
+      simRef.current = io;
+
+      const engine = createSterilizerEngine({
+        io,
+        programs,
+      });
+      engineRef.current = engine;
+      setReady(true);
+      setState(engine.getState());
+      setConnectionStatus(mode === 'remote' ? 'fallback' : 'local');
+
+      let last = performance.now();
+      const interval = setInterval(() => {
+        const now = performance.now();
+        const dtSec = (now - last) / 1000;
+        last = now;
+
+        simRef.current?.stepPhysics(dtSec);
+        engineRef.current
+          ?.tick(dtSec * 1000)
+          .then(() => {
+            const snapshot = engineRef.current ? JSON.parse(JSON.stringify(engineRef.current.getState())) : null;
+            setState(snapshot);
+          })
+          .catch((err) => console.error('Engine tick error', err));
+      }, 200);
+
+      cleanupLocal = () => clearInterval(interval);
+    };
+
     // Очистка перед сменой режима
     engineRef.current = null;
     simRef.current = null;
@@ -115,11 +156,12 @@ export function useEngineSimulation(mode: EngineMode = 'local', wsUrl = 'ws://lo
         setReady(true);
       };
       ws.onclose = () => {
-        setConnectionStatus('disconnected');
-        setReady(false);
+        setConnectionStatus('fallback');
+        startLocalSim();
       };
       ws.onerror = () => {
         setConnectionStatus('disconnected');
+        startLocalSim();
       };
       ws.onmessage = (evt) => {
         try {
@@ -133,45 +175,16 @@ export function useEngineSimulation(mode: EngineMode = 'local', wsUrl = 'ws://lo
       };
       return () => {
         ws.close();
+        if (cleanupLocal) cleanupLocal();
       };
     }
 
     // Local simulation
     setConnectionStatus('local');
-    const initialPhysical: Partial<InternalPhysicalState> = {
-      doorLocked: true,
-      doorOpen: false,
-      chamberTemperatureC: 25,
-      generatorTemperatureC: 25,
+    startLocalSim();
+    return () => {
+      if (cleanupLocal) cleanupLocal();
     };
-    const io = new SimulationIO(initialPhysical);
-    simRef.current = io;
-
-    const engine = createSterilizerEngine({
-      io,
-      programs,
-    });
-    engineRef.current = engine;
-    setReady(true);
-    setState(engine.getState());
-
-    let last = performance.now();
-    const interval = setInterval(() => {
-      const now = performance.now();
-      const dtSec = (now - last) / 1000;
-      last = now;
-
-      simRef.current?.stepPhysics(dtSec);
-      engineRef.current
-        ?.tick(dtSec * 1000)
-        .then(() => {
-          const snapshot = engineRef.current ? JSON.parse(JSON.stringify(engineRef.current.getState())) : null;
-          setState(snapshot);
-        })
-        .catch((err) => console.error('Engine tick error', err));
-    }, 200);
-
-    return () => clearInterval(interval);
   }, [mode, wsUrl, programs]);
 
   const controls: EngineControls = useMemo(

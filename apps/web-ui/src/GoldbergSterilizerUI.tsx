@@ -208,8 +208,22 @@ export default function GoldbergSterilizerUI() {
         <div className="flex items-center gap-6">
           <StatusBadge status={status} />
           <div className="bg-slate-100 px-3 py-1 rounded-lg text-xs font-semibold text-slate-600 flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full" style={{ background: engineMode === 'local' ? '#22c55e' : '#eab308' }} />
-            {engineMode === 'local' ? 'Local simulation' : 'Remote (ws)'}
+            <span
+              className="w-2 h-2 rounded-full"
+              style={{
+                background:
+                  connectionStatus === 'connected'
+                    ? '#22c55e'
+                    : connectionStatus === 'connecting'
+                    ? '#eab308'
+                    : connectionStatus === 'fallback'
+                    ? '#3b82f6'
+                    : '#ef4444',
+              }}
+            />
+            {engineMode === 'local'
+              ? 'Local simulation'
+              : `Remote: ${connectionStatus}`}
           </div>
           <div className="text-right">
             <div className="text-lg font-bold text-slate-700 leading-none font-mono">
