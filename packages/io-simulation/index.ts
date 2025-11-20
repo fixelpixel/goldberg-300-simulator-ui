@@ -1,0 +1,133 @@
+// io-simulation/index.ts
+// Реализация SterilizerIO для режима симуляции (без реального оборудования).
+
+import type { SterilizerIO } from '../core-sterilizer';
+
+export interface InternalPhysicalState {
+  chamberPressureMPa: number;
+  chamberTemperatureC: number;
+  generatorPressureMPa: number;
+  generatorTemperatureC: number;
+  jacketPressureMPa: number;
+  waterLevelPercent: number;
+  doorOpen: boolean;
+  doorLocked: boolean;
+
+  heaterOn: boolean;
+  steamInletValveOpen: boolean;
+  steamExhaustValveOpen: boolean;
+  vacuumPumpOn: boolean;
+  waterPumpOn: boolean;
+}
+
+export class SimulationIO implements SterilizerIO {
+  private physical: InternalPhysicalState;
+  private lastDt = 0;
+
+  constructor(initial?: Partial<InternalPhysicalState>) {
+    this.physical = {
+      chamberPressureMPa: 0,
+      chamberTemperatureC: 20,
+      generatorPressureMPa: 0,
+      generatorTemperatureC: 20,
+      jacketPressureMPa: 0,
+      waterLevelPercent: 100,
+      doorOpen: true,
+      doorLocked: false,
+      heaterOn: false,
+      steamInletValveOpen: false,
+      steamExhaustValveOpen: false,
+      vacuumPumpOn: false,
+      waterPumpOn: false,
+      ...initial,
+    };
+  }
+
+  // Приближённое давление насыщенного пара (МПа) в зависимости от температуры °C.
+  private saturatedSteamPressure(tempC: number) {
+    // Упрощённая аппроксимация: 100°C ≈ 0.1 МПа, 134°C ≈ 0.3 МПа
+    if (tempC <= 100) return 0;
+    const ratio = (tempC - 100) / 34; // 0..1 при 100..134
+    return Math.min(0.35, 0.1 + ratio * 0.2);
+  }
+
+  // В реальном цикле это должен вызывать движок, обновляя физику.
+  // Здесь оставлено как простая точка расширения.
+  public stepPhysics(dtSec: number) {
+    const p = this.physical;
+    this.lastDt = dtSec;
+
+    // Простейшая модель нагрева парогенератора
+    if (p.heaterOn && p.waterLevelPercent > 0) {
+      p.generatorTemperatureC += 1.8 * dtSec;
+      p.waterLevelPercent -= 0.02 * dtSec; // расход воды при нагреве
+    } else {
+      p.generatorTemperatureC -= 0.4 * dtSec;
+    }
+
+    if (p.generatorTemperatureC < 20) p.generatorTemperatureC = 20;
+    if (p.generatorTemperatureC > 160) p.generatorTemperatureC = 160;
+
+    // Условная зависимость давления пара от температуры
+    p.generatorPressureMPa = this.saturatedSteamPressure(p.generatorTemperatureC);
+
+    // Заполнение камеры паром
+    if (p.steamInletValveOpen) {
+      const delta = (p.generatorPressureMPa - p.chamberPressureMPa) * 0.6 * dtSec;
+      p.chamberPressureMPa += delta;
+      p.chamberTemperatureC += 2.0 * dtSec;
+    }
+
+    // Вакуум
+    if (p.vacuumPumpOn) {
+      p.chamberPressureMPa -= 0.06 * dtSec;
+    }
+
+    // Сброс
+    if (p.steamExhaustValveOpen) {
+      p.chamberPressureMPa -= 0.09 * dtSec;
+    }
+
+    // Охлаждение камеры
+    p.chamberTemperatureC -= 0.35 * dtSec;
+
+    if (p.chamberTemperatureC < 20) p.chamberTemperatureC = 20;
+    if (p.chamberPressureMPa < -0.1) p.chamberPressureMPa = -0.1;
+    if (p.chamberPressureMPa > 0.35) p.chamberPressureMPa = 0.35;
+
+    if (p.waterLevelPercent < 0) p.waterLevelPercent = 0;
+  }
+
+  async readSensors() {
+    return {
+      chamberPressureMPa: this.physical.chamberPressureMPa,
+      chamberTemperatureC: this.physical.chamberTemperatureC,
+      generatorPressureMPa: this.physical.generatorPressureMPa,
+      generatorTemperatureC: this.physical.generatorTemperatureC,
+      jacketPressureMPa: this.physical.jacketPressureMPa,
+      waterLevelPercent: this.physical.waterLevelPercent,
+      doorOpen: this.physical.doorOpen,
+      doorLocked: this.physical.doorLocked,
+    };
+  }
+
+  async writeActuators(cmd: {
+    heaterOn?: boolean;
+    steamInletValveOpen?: boolean;
+    steamExhaustValveOpen?: boolean;
+    vacuumPumpOn?: boolean;
+    waterPumpOn?: boolean;
+    doorLockOn?: boolean;
+  }) {
+    if (typeof cmd.heaterOn === 'boolean') this.physical.heaterOn = cmd.heaterOn;
+    if (typeof cmd.steamInletValveOpen === 'boolean') this.physical.steamInletValveOpen = cmd.steamInletValveOpen;
+    if (typeof cmd.steamExhaustValveOpen === 'boolean') this.physical.steamExhaustValveOpen = cmd.steamExhaustValveOpen;
+    if (typeof cmd.vacuumPumpOn === 'boolean') this.physical.vacuumPumpOn = cmd.vacuumPumpOn;
+    if (typeof cmd.waterPumpOn === 'boolean') this.physical.waterPumpOn = cmd.waterPumpOn;
+
+    if (typeof cmd.doorLockOn === 'boolean') {
+      this.physical.doorLocked = cmd.doorLockOn;
+      this.physical.doorOpen = !cmd.doorLockOn && this.physical.doorOpen;
+    }
+  }
+}

@@ -1,0 +1,23 @@
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Node / builds
+node_modules/
+dist/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+package-lock.json
+
+# Env / misc
+.env
+.env.*
+.cache
+.turbo
+.parcel-cache
+
+# Coverage / tests
+coverage/
+.nyc_output/

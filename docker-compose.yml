@@ -1,0 +1,13 @@
+version: '3.9'
+
+services:
+  goldberg:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+      - "8080:8080"
+    environment:
+      UI_PORT: 5173
+      GATEWAY_PORT: 8080
+    # Для простоты запускаем оба процесса в одном контейнере (serve + gateway)

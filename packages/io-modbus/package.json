@@ -1,0 +1,12 @@
+{
+  "name": "@goldberg/io-modbus",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "index.ts",
+  "module": "index.ts",
+  "types": "index.ts",
+  "dependencies": {
+    "@goldberg/core-sterilizer": "0.1.0"
+  }
+}

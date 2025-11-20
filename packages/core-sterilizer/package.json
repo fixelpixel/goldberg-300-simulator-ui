@@ -1,0 +1,9 @@
+{
+  "name": "@goldberg/core-sterilizer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "index.ts",
+  "module": "index.ts",
+  "types": "index.ts"
+}
