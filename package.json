@@ -1,0 +1,23 @@
+{
+  "name": "virtual-goldberg-300",
+  "private": true,
+  "workspaces": [
+    "apps/web-ui",
+    "packages/*",
+    "server-gateway"
+  ],
+  "scripts": {
+    "lint": "eslint \"apps/**/*.ts\" \"apps/**/*.tsx\" \"packages/**/*.ts\"",
+    "format": "prettier --write \"**/*.{ts,tsx,js,json,md}\" --ignore-path .gitignore",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.13.0",
+    "@typescript-eslint/parser": "^8.13.0",
+    "eslint": "^9.12.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-react-hooks": "^5.1.0",
+    "prettier": "^3.3.3",
+    "vitest": "^2.1.1"
+  }
+}

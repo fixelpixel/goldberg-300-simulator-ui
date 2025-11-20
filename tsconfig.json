@@ -1,0 +1,10 @@
+{
+  "extends": "./packages/tsconfig.base.json",
+  "include": [
+    "apps/web-ui/src",
+    "packages",
+    "server-gateway/src",
+    "**/*.ts",
+    "**/*.tsx"
+  ]
+}
