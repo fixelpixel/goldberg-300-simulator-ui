@@ -92,6 +92,19 @@ export interface SterilizerState {
   lastCompletedCycles: CycleSummary[];
 }
 
+const PHASE_DEFAULTS: Record<Phase, number> = {
+  IDLE: 0,
+  PREHEAT: 60,
+  PREVACUUM: 20,
+  HEAT_UP: 90,
+  STERILIZATION: 300,
+  DRYING: 60,
+  DEPRESSURIZE: 20,
+  COOLING: 40,
+  COMPLETE: 0,
+  ERROR: 0,
+};
+
 // Интерфейс ввода/вывода - абстрагирует датчики и исполнительные механизмы.
 export interface SterilizerIO {
   readSensors(): Promise<{
@@ -164,7 +177,23 @@ let currentProgram: ProgramConfig | null = null;
 let completedPrevacuums = 0;
 let currentCycleStart = 0;
 let maxTemp = 0;
-let maxPressure = 0;
+  let maxPressure = 0;
+
+  function recordCycle(success: boolean) {
+    if (!state.cycle.currentProgram) return;
+    const summary: CycleSummary = {
+      id: `c_${state.lastCompletedCycles.length + 1}_${Date.now()}`,
+      startedAt: currentCycleStart,
+      endedAt: now(),
+      programId: state.cycle.currentProgram.id,
+      programName: state.cycle.currentProgram.name,
+      success,
+      maxTemperatureC: maxTemp,
+      maxPressureMPa: maxPressure,
+      errors: [...state.errors],
+    };
+    state.lastCompletedCycles = [summary, ...state.lastCompletedCycles].slice(0, 50);
+  }
 
   async function syncSensors() {
     const sensors = await io.readSensors();
@@ -199,20 +228,7 @@ let maxPressure = 0;
     state.errors = [...state.errors, evt];
     state.cycle.currentPhase = 'ERROR';
     state.cycle.active = false;
-    if (state.cycle.currentProgram) {
-      const summary: CycleSummary = {
-        id: `c_${state.lastCompletedCycles.length + 1}_${Date.now()}`,
-        startedAt: currentCycleStart,
-        endedAt: now(),
-        programId: state.cycle.currentProgram.id,
-        programName: state.cycle.currentProgram.name,
-        success: false,
-        maxTemperatureC: maxTemp,
-        maxPressureMPa: maxPressure,
-        errors: [...state.errors, evt],
-      };
-      state.lastCompletedCycles = [summary, ...state.lastCompletedCycles].slice(0, 20);
-    }
+    recordCycle(false);
   }
 
   async function tick(dtMs: number) {
@@ -234,7 +250,7 @@ let maxPressure = 0;
     const setPhase = async (phase: Phase, totalSec = 0) => {
       state.cycle.currentPhase = phase;
       state.cycle.phaseElapsedSec = 0;
-      state.cycle.phaseTotalSec = totalSec;
+      state.cycle.phaseTotalSec = totalSec || PHASE_DEFAULTS[phase] || 0;
       if (phase === 'PREVACUUM') completedPrevacuums += 1;
     };
 
@@ -242,9 +258,9 @@ let maxPressure = 0;
       switch (state.cycle.currentPhase) {
         case 'PREHEAT': {
           await io.writeActuators({ heaterOn: true, steamInletValveOpen: false, vacuumPumpOn: false, steamExhaustValveOpen: false });
-          if (state.generator.temperatureC >= program.setTempC - 5 || state.cycle.phaseElapsedSec > 30) {
+          if (state.generator.temperatureC >= Math.max(100, program.setTempC - 5) || state.cycle.phaseElapsedSec > PHASE_DEFAULTS.PREHEAT) {
             completedPrevacuums = 0;
-            await setPhase('PREVACUUM', 18);
+            await setPhase('PREVACUUM', PHASE_DEFAULTS.PREVACUUM);
           }
           break;
         }
@@ -252,9 +268,9 @@ let maxPressure = 0;
           await io.writeActuators({ vacuumPumpOn: true, steamExhaustValveOpen: true, steamInletValveOpen: false, heaterOn: false });
           if (state.cycle.phaseElapsedSec > state.cycle.phaseTotalSec) {
             if (completedPrevacuums >= program.preVacuumCount) {
-              await setPhase('HEAT_UP', 60);
+              await setPhase('HEAT_UP', PHASE_DEFAULTS.HEAT_UP);
             } else {
-              await setPhase('PREVACUUM', 18);
+              await setPhase('PREVACUUM', PHASE_DEFAULTS.PREVACUUM);
             }
           }
           break;
@@ -262,7 +278,7 @@ let maxPressure = 0;
         case 'HEAT_UP': {
           await io.writeActuators({ steamInletValveOpen: true, heaterOn: true, vacuumPumpOn: false, steamExhaustValveOpen: false });
           const reachedTemp = state.chamber.temperatureC >= program.setTempC - 2;
-          if (reachedTemp || state.cycle.phaseElapsedSec > 80) {
+          if (reachedTemp || state.cycle.phaseElapsedSec > state.cycle.phaseTotalSec) {
             await setPhase('STERILIZATION', program.sterilizationTimeSec);
           }
           break;
@@ -282,7 +298,7 @@ let maxPressure = 0;
         case 'DRYING': {
           await io.writeActuators({ vacuumPumpOn: true, steamExhaustValveOpen: true, heaterOn: false, steamInletValveOpen: false });
           if (state.cycle.phaseElapsedSec >= (program.dryingTimeSec || 30)) {
-            await setPhase('DEPRESSURIZE', 15);
+            await setPhase('DEPRESSURIZE', PHASE_DEFAULTS.DEPRESSURIZE);
           }
           break;
         }
@@ -298,18 +314,7 @@ let maxPressure = 0;
           if (state.chamber.temperatureC <= 60 || state.cycle.phaseElapsedSec > 40) {
             await setPhase('COMPLETE', 0);
             state.cycle.active = false;
-            const summary: CycleSummary = {
-              id: `c_${state.lastCompletedCycles.length + 1}_${Date.now()}`,
-              startedAt: currentCycleStart,
-              endedAt: now(),
-              programId: program.id,
-              programName: program.name,
-              success: true,
-              maxTemperatureC: maxTemp,
-              maxPressureMPa: maxPressure,
-              errors: [...state.errors],
-            };
-            state.lastCompletedCycles = [summary, ...state.lastCompletedCycles].slice(0, 20);
+            recordCycle(true);
           }
           break;
         }
@@ -330,12 +335,19 @@ let maxPressure = 0;
       if (state.chamber.temperatureC > currentProgram.setTempC + 8) {
         pushError('OVERTEMP', 'Превышение температуры в камере');
       }
-      if (state.cycle.currentPhase === 'HEAT_UP' && state.cycle.phaseElapsedSec > 120 && state.chamber.temperatureC < currentProgram.setTempC - 5) {
+      if (state.cycle.currentPhase === 'HEAT_UP' && state.cycle.phaseElapsedSec > state.cycle.phaseTotalSec + 30 && state.chamber.temperatureC < currentProgram.setTempC - 5) {
         pushError('HEATING_TIMEOUT', 'Не достигнута температура стерилизации');
       }
       if (state.cycle.currentPhase === 'PREVACUUM' && state.cycle.phaseElapsedSec > state.cycle.phaseTotalSec + 5 && state.chamber.pressureMPa > 0.05) {
         pushError('VACUUM_FAIL', 'Не удалось достичь вакуума');
       }
+      if (state.cycle.currentPhase === 'DRYING' && state.cycle.phaseElapsedSec > state.cycle.phaseTotalSec + 60) {
+        pushError('HEATING_TIMEOUT', 'Сушка превысила допустимое время');
+      }
+    }
+    // Безопасность двери: если в цикле дверь открылась — авария
+    if (state.cycle.active && state.door.open) {
+      pushError('DOOR_OPEN', 'Дверь открыта во время цикла');
     }
 
     lastTickMs = now();

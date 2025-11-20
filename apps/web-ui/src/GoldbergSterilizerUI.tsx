@@ -20,7 +20,7 @@ import {
   Droplets,
   Wind
 } from 'lucide-react';
-import { useEngineSimulation, PROGRAM_DETAILS } from './engineClient';
+import { useEngineSimulation, PROGRAM_DETAILS, type EngineMode } from './engineClient';
 
 // --- Types & Mock Data ---
 
@@ -97,10 +97,12 @@ const StatusBadge = ({ status }: { status: string }) => {
 // --- Main Application Component ---
 
 export default function GoldbergSterilizerUI() {
-  const { state, programs, controls, ready } = useEngineSimulation();
+  const [engineMode, setEngineMode] = useState<EngineMode>('local');
+  const { state, programs, controls, ready, connectionStatus } = useEngineSimulation(engineMode);
   const [currentScreen, setCurrentScreen] = useState<ScreenType>('MAIN');
   const [selectedProgramId, setSelectedProgramId] = useState<string>('');
   const [statusOverride, setStatusOverride] = useState<string | null>(null);
+  const [logFilter, setLogFilter] = useState<'all' | 'success' | 'fail'>('all');
   
   // Modals State
   const [showStopModal, setShowStopModal] = useState(false);
@@ -143,9 +145,25 @@ export default function GoldbergSterilizerUI() {
     waterLevel: state?.generator.waterLevelPercent,
   };
 
+  const cyclesSorted = useMemo(() => {
+    const arr = [...(state?.lastCompletedCycles ?? [])];
+    return arr.sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
+  }, [state?.lastCompletedCycles]);
+
+  const cyclesFiltered = useMemo(() => {
+    if (logFilter === 'all') return cyclesSorted;
+    const success = logFilter === 'success';
+    return cyclesSorted.filter((c) => Boolean(c.success) === success);
+  }, [cyclesSorted, logFilter]);
+
   const formatPressure = (v?: number) => (v !== undefined ? v.toFixed(3) : '--');
   const formatTemp = (v?: number) => (v !== undefined ? v.toFixed(1) : '--');
   const formatMinutes = (seconds: number) => `${(seconds / 60).toFixed(1)} мин`;
+  const formatDuration = (start?: number, end?: number) => {
+    if (!start || !end) return '—';
+    const diff = Math.max(0, end - start) / 1000;
+    return formatMinutes(diff);
+  };
 
   // --- Handlers ---
   const handleStart = () => {
@@ -189,6 +207,10 @@ export default function GoldbergSterilizerUI() {
         
         <div className="flex items-center gap-6">
           <StatusBadge status={status} />
+          <div className="bg-slate-100 px-3 py-1 rounded-lg text-xs font-semibold text-slate-600 flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full" style={{ background: engineMode === 'local' ? '#22c55e' : '#eab308' }} />
+            {engineMode === 'local' ? 'Local simulation' : 'Remote (ws)'}
+          </div>
           <div className="text-right">
             <div className="text-lg font-bold text-slate-700 leading-none font-mono">
               {dateTime.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
@@ -504,14 +526,20 @@ export default function GoldbergSterilizerUI() {
 
   const ScreenTables = ({ type }: { type: 'LOGS' | 'ERRORS' }) => (
     <div className="h-full flex flex-col">
-      <div className="flex justify-between items-center mb-4">
-         <div className="flex items-center gap-2">
-            <button onClick={() => setCurrentScreen('MAIN')} className="p-2 hover:bg-slate-200 rounded-full"><ArrowLeft /></button>
-            <h2 className="text-2xl font-bold text-slate-800">{type === 'LOGS' ? 'Журнал циклов' : 'Журнал ошибок'}</h2>
-         </div>
-         <div className="flex gap-2">
-           <button className="px-4 py-2 bg-white border border-slate-300 rounded font-medium text-slate-600">Фильтр по дате</button>
-           <button
+        <div className="flex justify-between items-center mb-4">
+          <div className="flex items-center gap-2">
+             <button onClick={() => setCurrentScreen('MAIN')} className="p-2 hover:bg-slate-200 rounded-full"><ArrowLeft /></button>
+             <h2 className="text-2xl font-bold text-slate-800">{type === 'LOGS' ? 'Журнал циклов' : 'Журнал ошибок'}</h2>
+          </div>
+          <div className="flex gap-2">
+             {type === 'LOGS' && (
+               <>
+                 <button onClick={() => setLogFilter('all')} className={`px-4 py-2 rounded font-medium border ${logFilter === 'all' ? 'bg-cyan-600 text-white border-cyan-600' : 'bg-white text-slate-600 border-slate-300'}`}>Все</button>
+                 <button onClick={() => setLogFilter('success')} className={`px-4 py-2 rounded font-medium border ${logFilter === 'success' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-slate-600 border-slate-300'}`}>Успех</button>
+                 <button onClick={() => setLogFilter('fail')} className={`px-4 py-2 rounded font-medium border ${logFilter === 'fail' ? 'bg-rose-600 text-white border-rose-600' : 'bg-white text-slate-600 border-slate-300'}`}>Ошибки</button>
+               </>
+             )}
+             <button
              onClick={() => {
                const payload = {
                  cycles: state?.lastCompletedCycles ?? [],
@@ -531,6 +559,30 @@ export default function GoldbergSterilizerUI() {
            >
              <FileText size={16} /> Экспорт JSON
            </button>
+           <button
+             onClick={() => {
+               const rows = (state?.lastCompletedCycles ?? []).map((row) => [
+                 row.id,
+                 new Date(row.startedAt).toISOString(),
+                 row.programName,
+                 row.success ? 'OK' : 'FAIL',
+                 (row.maxTemperatureC ?? '').toString(),
+                 (row.maxPressureMPa ?? '').toString(),
+               ]);
+               const header = ['id', 'startedAt', 'program', 'status', 'maxTemp', 'maxPressure'];
+               const csv = [header, ...rows].map((r) => r.join(',')).join('\n');
+               const blob = new Blob([csv], { type: 'text/csv' });
+               const url = URL.createObjectURL(blob);
+               const a = document.createElement('a');
+               a.href = url;
+               a.download = 'cycles.csv';
+               a.click();
+               URL.revokeObjectURL(url);
+             }}
+             className="px-4 py-2 bg-emerald-600 text-white rounded font-medium flex items-center gap-2"
+           >
+             <FileText size={16} /> Экспорт CSV
+           </button>
          </div>
       </div>
 
@@ -544,6 +596,9 @@ export default function GoldbergSterilizerUI() {
                   <th className="p-4">Дата</th>
                   <th className="p-4">Время</th>
                   <th className="p-4">Программа</th>
+                  <th className="p-4">Длительность</th>
+                  <th className="p-4">T макс</th>
+                  <th className="p-4">P макс</th>
                   <th className="p-4">Статус</th>
                 </tr>
               ) : (
@@ -555,8 +610,8 @@ export default function GoldbergSterilizerUI() {
               )}
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {type === 'LOGS' && state?.lastCompletedCycles?.length ? (
-                state.lastCompletedCycles.map((row) => {
+              {type === 'LOGS' && cyclesFiltered.length ? (
+                cyclesFiltered.map((row) => {
                   const started = new Date(row.startedAt);
                   const date = started.toLocaleDateString('ru-RU');
                   const time = started.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
@@ -566,6 +621,9 @@ export default function GoldbergSterilizerUI() {
                       <td className="p-4 text-slate-700">{date}</td>
                       <td className="p-4 text-slate-700">{time}</td>
                       <td className="p-4 font-medium text-slate-800">{row.programName}</td>
+                      <td className="p-4 text-slate-600">{formatDuration(row.startedAt, row.endedAt)}</td>
+                      <td className="p-4 text-slate-600">{row.maxTemperatureC?.toFixed?.(1) ?? '—'} °C</td>
+                      <td className="p-4 text-slate-600">{row.maxPressureMPa?.toFixed?.(3) ?? '—'} МПа</td>
                       <td className="p-4">
                         <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${row.success ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
                           {row.success ? 'Успешно' : 'Ошибка'}
@@ -751,6 +809,11 @@ export default function GoldbergSterilizerUI() {
 
       {/* Main Content Area */}
       <main className="flex-1 overflow-hidden p-6 relative">
+        {engineMode === 'remote' && (
+          <div className="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-sm font-medium">
+            Remote режим в разработке. Сейчас работает локальная симуляция.
+          </div>
+        )}
         {currentScreen === 'MAIN' && <ScreenMain />}
         {currentScreen === 'PROGRAMS' && <ScreenPrograms />}
         {currentScreen === 'VACUUM_TEST' && <ScreenVacuumTest />}

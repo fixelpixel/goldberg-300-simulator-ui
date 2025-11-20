@@ -59,10 +59,10 @@ export class SimulationIO implements SterilizerIO {
 
     // Простейшая модель нагрева парогенератора
     if (p.heaterOn && p.waterLevelPercent > 0) {
-      p.generatorTemperatureC += 1.8 * dtSec;
-      p.waterLevelPercent -= 0.02 * dtSec; // расход воды при нагреве
+      p.generatorTemperatureC += 2.2 * dtSec;
+      p.waterLevelPercent -= 0.03 * dtSec; // расход воды при нагреве
     } else {
-      p.generatorTemperatureC -= 0.4 * dtSec;
+      p.generatorTemperatureC -= 0.35 * dtSec;
     }
 
     if (p.generatorTemperatureC < 20) p.generatorTemperatureC = 20;
@@ -73,23 +73,23 @@ export class SimulationIO implements SterilizerIO {
 
     // Заполнение камеры паром
     if (p.steamInletValveOpen) {
-      const delta = (p.generatorPressureMPa - p.chamberPressureMPa) * 0.6 * dtSec;
+      const delta = (p.generatorPressureMPa - p.chamberPressureMPa) * 0.65 * dtSec;
       p.chamberPressureMPa += delta;
-      p.chamberTemperatureC += 2.0 * dtSec;
+      p.chamberTemperatureC += 2.2 * dtSec;
     }
 
     // Вакуум
     if (p.vacuumPumpOn) {
-      p.chamberPressureMPa -= 0.06 * dtSec;
+      p.chamberPressureMPa -= 0.07 * dtSec;
     }
 
     // Сброс
     if (p.steamExhaustValveOpen) {
-      p.chamberPressureMPa -= 0.09 * dtSec;
+      p.chamberPressureMPa -= 0.1 * dtSec;
     }
 
     // Охлаждение камеры
-    p.chamberTemperatureC -= 0.35 * dtSec;
+    p.chamberTemperatureC -= 0.4 * dtSec;
 
     if (p.chamberTemperatureC < 20) p.chamberTemperatureC = 20;
     if (p.chamberPressureMPa < -0.1) p.chamberPressureMPa = -0.1;

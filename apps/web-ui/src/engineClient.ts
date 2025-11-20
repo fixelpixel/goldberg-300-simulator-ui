@@ -82,15 +82,62 @@ type EngineControls = {
   resetErrors: () => void;
 };
 
-export function useEngineSimulation() {
+export type EngineMode = 'local' | 'remote';
+
+export function useEngineSimulation(mode: EngineMode = 'local', wsUrl = 'ws://localhost:8080') {
   const engineRef = useRef<SterilizerEngine | null>(null);
   const simRef = useRef<SimulationIO | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
   const [state, setState] = useState<SterilizerState | null>(null);
   const [ready, setReady] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<'local' | 'connecting' | 'connected' | 'disconnected'>('local');
 
   const programs = useMemo(() => PROGRAMS, []);
 
   useEffect(() => {
+    // Очистка перед сменой режима
+    engineRef.current = null;
+    simRef.current = null;
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    setReady(false);
+    setState(null);
+
+    if (mode !== 'local') {
+      setConnectionStatus('connecting');
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        setConnectionStatus('connected');
+        setReady(true);
+      };
+      ws.onclose = () => {
+        setConnectionStatus('disconnected');
+        setReady(false);
+      };
+      ws.onerror = () => {
+        setConnectionStatus('disconnected');
+      };
+      ws.onmessage = (evt) => {
+        try {
+          const data = JSON.parse(evt.data);
+          if (data.type === 'state') {
+            setState(data.payload as SterilizerState);
+          }
+        } catch (e) {
+          console.warn('WS parse error', e);
+        }
+      };
+      return () => {
+        ws.close();
+      };
+    }
+
+    // Local simulation
+    setConnectionStatus('local');
     const initialPhysical: Partial<InternalPhysicalState> = {
       doorLocked: true,
       doorOpen: false,
@@ -108,7 +155,6 @@ export function useEngineSimulation() {
     setReady(true);
     setState(engine.getState());
 
-    // Плавная симуляция: обновляем физику и движок каждые 200 мс.
     let last = performance.now();
     const interval = setInterval(() => {
       const now = performance.now();
@@ -126,18 +172,48 @@ export function useEngineSimulation() {
     }, 200);
 
     return () => clearInterval(interval);
-  }, [programs]);
+  }, [mode, wsUrl, programs]);
 
   const controls: EngineControls = useMemo(
     () => ({
-      startCycle: async (programId: string) => engineRef.current?.startCycle(programId) ?? Promise.resolve(),
-      stopCycle: async () => engineRef.current?.stopCycle() ?? Promise.resolve(),
-      openDoor: async () => engineRef.current?.openDoor() ?? Promise.resolve(),
-      closeDoor: async () => engineRef.current?.closeDoor() ?? Promise.resolve(),
-      resetErrors: () => engineRef.current?.resetErrors(),
+      startCycle: async (programId: string) => {
+        if (mode === 'remote' && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: 'command', payload: { kind: 'start_cycle', params: { programId } } }));
+          return;
+        }
+        return engineRef.current?.startCycle(programId) ?? Promise.resolve();
+      },
+      stopCycle: async () => {
+        if (mode === 'remote' && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: 'command', payload: { kind: 'stop_cycle', params: {} } }));
+          return;
+        }
+        return engineRef.current?.stopCycle() ?? Promise.resolve();
+      },
+      openDoor: async () => {
+        if (mode === 'remote' && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: 'command', payload: { kind: 'open_door', params: {} } }));
+          return;
+        }
+        return engineRef.current?.openDoor() ?? Promise.resolve();
+      },
+      closeDoor: async () => {
+        if (mode === 'remote' && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: 'command', payload: { kind: 'close_door', params: {} } }));
+          return;
+        }
+        return engineRef.current?.closeDoor() ?? Promise.resolve();
+      },
+      resetErrors: () => {
+        if (mode === 'remote' && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: 'command', payload: { kind: 'reset_errors', params: {} } }));
+          return;
+        }
+        engineRef.current?.resetErrors();
+      },
     }),
-    [],
+    [mode],
   );
 
-  return { state, programs, controls, ready };
+  return { state, programs, controls, ready, connectionStatus };
 }
