@@ -291,6 +291,7 @@ export default function GoldbergSterilizerUI() {
   const { playNotification } = useAudioNotifications();
   const [engineerPanelOpen, setEngineerPanelOpen] = useState(false);
   const [manualSteamOpen, setManualSteamOpen] = useState(false);
+  const [manualHeaterOn, setManualHeaterOn] = useState(false);
   const prevReadyRef = useRef(false);
   const prevCycleActiveRef = useRef(false);
   const prevSystemStateRef = useRef<SystemState>('IDLE');
@@ -380,14 +381,13 @@ export default function GoldbergSterilizerUI() {
   useEffect(() => {
     if (!engineerPanelOpen) {
       setManualSteamOpen(false);
-      controls.setManualActuators({ steamInletValveOpen: null });
+      setManualHeaterOn(false);
+      controls.setManualActuators({ steamInletValveOpen: null, heaterOn: null });
     }
   }, [engineerPanelOpen, controls]);
 
-  useEffect(() => {
-    return () => {
-      controls.setManualActuators({ steamInletValveOpen: null });
-    };
+  useEffect(() => () => {
+    controls.setManualActuators({ steamInletValveOpen: null, heaterOn: null });
   }, [controls]);
 
   useEffect(() => {
@@ -558,6 +558,12 @@ export default function GoldbergSterilizerUI() {
     const next = !manualSteamOpen;
     setManualSteamOpen(next);
     controls.setManualActuators({ steamInletValveOpen: next ? true : null });
+  };
+
+  const handleManualHeaterToggle = () => {
+    const next = !manualHeaterOn;
+    setManualHeaterOn(next);
+    controls.setManualActuators({ heaterOn: next ? true : null });
   };
 
   // --- Sub-Components ---
@@ -1345,6 +1351,18 @@ export default function GoldbergSterilizerUI() {
               Панель для ручного тестирования клапанов и насосов. Доступна также по сочетанию Ctrl + E.
             </p>
             <div className="space-y-4">
+              <div className="flex items-center justify-between p-3 border rounded-xl">
+                <div>
+                  <div className="font-semibold text-slate-700">Нагрев парогенератора</div>
+                  <div className="text-xs text-slate-500">Принудительное включение ТЭНов</div>
+                </div>
+                <button
+                  onClick={handleManualHeaterToggle}
+                  className={`px-4 py-2 rounded-xl font-bold ${manualHeaterOn ? 'bg-red-600 text-white' : 'bg-emerald-600 text-white'} hover:opacity-90`}
+                >
+                  {manualHeaterOn ? 'Выключить' : 'Включить'}
+                </button>
+              </div>
               <div className="flex items-center justify-between p-3 border rounded-xl">
                 <div>
                   <div className="font-semibold text-slate-700">Паровой клапан</div>
