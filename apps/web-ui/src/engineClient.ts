@@ -129,6 +129,11 @@ type EngineControls = {
   closeDoor: () => Promise<void>;
   resetErrors: () => void;
   startVacuumTest: (cfg?: { stabilizationTimeSec: number; testTimeSec: number }) => Promise<void>;
+  setProgramOverride: (programId: string, override: Partial<ProgramConfig>) => void;
+  setCalibrationOffsets: (offsets: Partial<{ chamberTempOffsetC: number; chamberPressureOffset: number; generatorTempOffsetC: number; generatorPressureOffset: number }>) => void;
+  resetCalibrationOffsets: () => void;
+  continueAfterPower: () => void;
+  abortAfterPower: () => void;
 };
 
 export type EngineMode = 'local' | 'remote';
@@ -280,6 +285,21 @@ export function useEngineSimulation(mode: EngineMode = 'local', wsUrl = 'ws://lo
           return;
         }
         return engineRef.current?.startVacuumTest(payload) ?? Promise.resolve();
+      },
+      setProgramOverride: (programId, override) => {
+        engineRef.current?.setProgramOverride(programId, override);
+      },
+      setCalibrationOffsets: (offsets) => {
+        engineRef.current?.setCalibrationOffsets(offsets);
+      },
+      resetCalibrationOffsets: () => {
+        engineRef.current?.resetCalibrationOffsets();
+      },
+      continueAfterPower: () => {
+        engineRef.current?.continueAfterPower();
+      },
+      abortAfterPower: () => {
+        engineRef.current?.abortAfterPower();
       },
     }),
     [mode],

@@ -43,6 +43,13 @@ export interface ProgramConfig {
   dryingTimeSec: number;
 }
 
+export interface ProgramOverride {
+  setTempC?: number;
+  sterilizationTimeSec?: number;
+  preVacuumCount?: number;
+  dryingTimeSec?: number;
+}
+
 export interface CycleRuntime {
   active: boolean;
   currentPhase: Phase;
@@ -117,6 +124,17 @@ export interface SterilizerState {
   lastCompletedCycles: CycleSummary[];
   vacuumTest: VacuumTestState;
   lastVacuumTests: VacuumTestResult[];
+  programOverrides: Record<string, ProgramOverride>;
+  calibrationOffsets: {
+    chamberTempOffsetC: number;
+    chamberPressureOffset: number;
+    generatorTempOffsetC: number;
+    generatorPressureOffset: number;
+  };
+  powerFailure: {
+    pending: boolean;
+    message?: string;
+  };
 }
 
 const PHASE_DEFAULTS: Record<Phase, number> = {
@@ -165,6 +183,12 @@ export interface SterilizerEngine {
   closeDoor(): Promise<void>;
 
   startVacuumTest(config: { stabilizationTimeSec: number; testTimeSec: number }): Promise<void>;
+  setProgramOverride(programId: string, override: ProgramOverride): void;
+  setCalibrationOffsets(offsets: Partial<SterilizerState['calibrationOffsets']>): void;
+  resetCalibrationOffsets(): void;
+  powerFail(message?: string): void;
+  continueAfterPower(): void;
+  abortAfterPower(): void;
 
   resetErrors(): void;
 }
@@ -208,6 +232,16 @@ export function createSterilizerEngine(options: EngineOptions): SterilizerEngine
       basePressureMPa: null,
     },
     lastVacuumTests: [],
+    programOverrides: {},
+    calibrationOffsets: {
+      chamberTempOffsetC: 0,
+      chamberPressureOffset: 0,
+      generatorTempOffsetC: 0,
+      generatorPressureOffset: 0,
+    },
+    powerFailure: {
+      pending: false,
+    },
   };
 
 let lastTickMs = now();
@@ -216,8 +250,9 @@ let completedPrevacuums = 0;
 let currentCycleStart = 0;
 let maxTemp = 0;
 let maxPressure = 0;
-let sterilizationTempLowSec = 0;
+  let sterilizationTempLowSec = 0;
 let currentVacuumStartPressure = 0;
+let pausedCycle: CycleRuntime | null = null;
 
   function recordCycle(result: 'success' | 'error' | 'aborted', primaryErrorCode?: ErrorCode) {
     if (!state.cycle.currentProgram) return;
@@ -243,15 +278,16 @@ let currentVacuumStartPressure = 0;
 
   async function syncSensors() {
     const sensors = await io.readSensors();
+    const cOff = state.calibrationOffsets;
     state = {
       ...state,
       chamber: {
-        pressureMPa: sensors.chamberPressureMPa,
-        temperatureC: sensors.chamberTemperatureC,
+        pressureMPa: sensors.chamberPressureMPa + cOff.chamberPressureOffset,
+        temperatureC: sensors.chamberTemperatureC + cOff.chamberTempOffsetC,
       },
       generator: {
-        pressureMPa: sensors.generatorPressureMPa,
-        temperatureC: sensors.generatorTemperatureC,
+        pressureMPa: sensors.generatorPressureMPa + cOff.generatorPressureOffset,
+        temperatureC: sensors.generatorTemperatureC + cOff.generatorTempOffsetC,
         waterLevelPercent: sensors.waterLevelPercent,
       },
       jacket: {
@@ -498,7 +534,11 @@ let currentVacuumStartPressure = 0;
     },
 
     async startCycle(programId: string) {
-      const program = programs.find((p) => p.id === programId) || null;
+      const base = programs.find((p) => p.id === programId) || null;
+      const override = state.programOverrides[programId] || {};
+      const program = base
+        ? { ...base, ...override }
+        : null;
       if (!program) {
         throw new Error(`Program not found: ${programId}`);
       }
@@ -512,6 +552,7 @@ let currentVacuumStartPressure = 0;
       maxTemp = 0;
       maxPressure = 0;
       state.errors = [];
+      state.powerFailure = { pending: false };
       state.cycle = {
         active: true,
         currentPhase: 'PREHEAT',
@@ -550,6 +591,51 @@ let currentVacuumStartPressure = 0;
         basePressureMPa: null,
       };
       await io.writeActuators({ vacuumPumpOn: true, steamExhaustValveOpen: true, steamInletValveOpen: false, heaterOn: false });
+    },
+
+    setProgramOverride(programId: string, override: ProgramOverride) {
+      state.programOverrides = {
+        ...state.programOverrides,
+        [programId]: { ...(state.programOverrides[programId] || {}), ...override },
+      };
+    },
+
+    setCalibrationOffsets(offsets: Partial<SterilizerState['calibrationOffsets']>) {
+      state.calibrationOffsets = { ...state.calibrationOffsets, ...offsets };
+    },
+
+    resetCalibrationOffsets() {
+      state.calibrationOffsets = {
+        chamberTempOffsetC: 0,
+        chamberPressureOffset: 0,
+        generatorTempOffsetC: 0,
+        generatorPressureOffset: 0,
+      };
+    },
+
+    powerFail(message?: string) {
+      if (!state.cycle.active) return;
+      pausedCycle = { ...state.cycle };
+      state.cycle.active = false;
+      state.powerFailure = { pending: true, message };
+    },
+
+    continueAfterPower() {
+      if (!state.powerFailure.pending || !pausedCycle) return;
+      state.cycle = { ...pausedCycle };
+      state.cycle.active = true;
+      state.powerFailure = { pending: false };
+      pausedCycle = null;
+    },
+
+    abortAfterPower() {
+      if (!state.powerFailure.pending) return;
+      state.powerFailure = { pending: false };
+      pausedCycle = null;
+      recordCycle('aborted', 'POWER_ERROR');
+      state.cycle.active = false;
+      state.cycle.currentPhase = 'IDLE';
+      state.cycle.currentProgram = null;
     },
 
     resetErrors() {
