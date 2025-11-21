@@ -249,8 +249,19 @@ export default function GoldbergSterilizerUI() {
   const doorState = getDoorStatus();
 
   const hazard = state?.errors?.[0];
-  const hazardInfo = hazard ? ERROR_MAP[hazard.code] : null;
-  const [pendingProgramId, setPendingProgramId] = useState<string | null>(null);
+   const hazardInfo = hazard ? ERROR_MAP[hazard.code] : null;
+   const [pendingProgramId, setPendingProgramId] = useState<string | null>(null);
+
+  const errorHistory = useMemo(
+    () =>
+      (state?.errors ?? []).map((err, idx) => ({
+        id: `${err.code}-${idx}`,
+        timestamp: dateTime.toLocaleString('ru-RU'),
+        code: err.code,
+        message: err.message,
+      })),
+    [state?.errors, dateTime]
+  );
 
   // Actions
   const startCycle = (programId: string) => {
@@ -322,6 +333,169 @@ export default function GoldbergSterilizerUI() {
                 </span>
               </div>
            </div>
+        </div>
+      </div>
+    );
+  };
+
+  // SERVICE SCREEN
+  const ServiceScreen = () => (
+    <div className="flex flex-col h-full w-full bg-white text-slate-900 rounded-2xl p-6 gap-6 border border-slate-200">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold tracking-wide text-slate-800">Сервис и тесты</h1>
+        <button onClick={() => setCurrentScreen('MAIN')} className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-sm text-slate-700 font-bold">
+          ← На главный экран
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <button onClick={() => setCurrentScreen('VACUUM_TEST')} className="flex flex-col items-start justify-between rounded-2xl bg-slate-50 border-2 border-slate-200 px-4 py-3 hover:border-cyan-500 hover:shadow">
+          <span className="text-base font-semibold text-slate-800">Вакуум-тест</span>
+          <span className="text-xs text-slate-500 mt-1">Проверка герметичности камеры.</span>
+        </button>
+        <button onClick={() => setCurrentScreen('SYSTEM_CHECK')} className="flex flex-col items-start justify-between rounded-2xl bg-slate-50 border-2 border-slate-200 px-4 py-3 hover:border-cyan-500 hover:shadow">
+          <span className="text-base font-semibold text-slate-800">Проверка системы</span>
+          <span className="text-xs text-slate-500 mt-1">Диагностика датчиков и исполнительных механизмов.</span>
+        </button>
+        <button onClick={() => setCurrentScreen('ERROR_LOG')} className="flex flex-col items-start justify-between rounded-2xl bg-slate-50 border-2 border-slate-200 px-4 py-3 hover:border-cyan-500 hover:shadow">
+          <span className="text-base font-semibold text-slate-800">Журнал ошибок</span>
+          <span className="text-xs text-slate-500 mt-1">История аварий и предупреждений.</span>
+        </button>
+        <button className="flex flex-col items-start justify-between rounded-2xl bg-slate-50 border-2 border-slate-100 px-4 py-3 text-left cursor-not-allowed opacity-70">
+          <span className="text-base font-semibold text-slate-500">Настройки (скоро)</span>
+          <span className="text-xs text-slate-400 mt-1">Дата/время, опции — плановый пункт бэклога.</span>
+        </button>
+      </div>
+    </div>
+  );
+
+  // ERROR LOG SCREEN
+  const ErrorLogScreen = () => (
+    <div className="flex flex-col h-full w-full bg-slate-950 text-slate-50 rounded-2xl p-6 gap-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold tracking-wide">Журнал ошибок</h1>
+        <button onClick={() => setCurrentScreen('SERVICE')} className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-sm">
+          ← Назад
+        </button>
+      </div>
+      <div className="flex-1 rounded-2xl bg-slate-900 border border-slate-800 overflow-hidden">
+        <div className="grid grid-cols-4 gap-0 px-4 py-2 text-xs font-medium uppercase text-slate-400 border-b border-slate-800">
+          <div>Время</div>
+          <div>Код</div>
+          <div>Описание</div>
+          <div>Цикл / контекст</div>
+        </div>
+        <div className="h-full overflow-y-auto text-sm">
+          {errorHistory.length === 0 ? (
+            <div className="px-4 py-4 text-slate-500 text-sm">
+              Ошибок пока нет. История будет заполняться после добавления errorHistory в ядро.
+            </div>
+          ) : (
+            errorHistory.map((err) => (
+              <div key={err.id} className="grid grid-cols-4 gap-0 px-4 py-2 border-b border-slate-800 text-xs">
+                <div className="text-slate-300">{err.timestamp}</div>
+                <div className="font-mono text-amber-300">{err.code}</div>
+                <div className="text-slate-200">{err.message}</div>
+                <div className="text-slate-400">—</div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  // VACUUM TEST SCREEN (placeholder)
+  const VacuumTestScreen = () => (
+    <div className="flex flex-col h-full w-full bg-slate-950 text-slate-50 rounded-2xl p-6 gap-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold tracking-wide">Вакуум-тест</h1>
+        <button onClick={() => setCurrentScreen('SERVICE')} className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-sm">
+          ← Назад
+        </button>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="rounded-2xl bg-slate-900 border border-slate-800 p-4 flex flex-col gap-3">
+          <h2 className="text-sm font-semibold text-slate-200">Параметры теста</h2>
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-slate-400">Время стабилизации</span>
+            <span className="font-mono">5 мин</span>
+          </div>
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-slate-400">Время теста</span>
+            <span className="font-mono">5 мин</span>
+          </div>
+          <p className="text-xs text-slate-500 mt-2">Параметры пока заглушки; после реализации логики в core здесь будут реальные значения.</p>
+        </div>
+        <div className="rounded-2xl bg-slate-900 border border-slate-800 p-4 flex flex-col gap-3">
+          <h2 className="text-sm font-semibold text-slate-200">Результат теста</h2>
+          <div className="flex-1 flex flex-col justify-center text-sm text-slate-400">
+            Тест ещё не выполнялся. После запуска здесь появится результат.
+          </div>
+          <button
+            type="button"
+            onClick={() => controls.startVacuumTest?.()}
+            className="mt-2 inline-flex items-center justify-center rounded-xl px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-sm font-medium disabled:opacity-50"
+          >
+            Запустить тест
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  // SYSTEM CHECK SCREEN (placeholder)
+  const SystemCheckScreen = () => {
+    const doorStatusLabel = doorLocked ? 'Заблокирована' : doorOpen ? 'Открыта' : 'Закрыта';
+    return (
+      <div className="flex flex-col h-full w-full bg-slate-950 text-slate-50 rounded-2xl p-6 gap-6">
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-semibold tracking-wide">Проверка системы</h1>
+          <button onClick={() => setCurrentScreen('SERVICE')} className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-sm">
+            ← Назад
+          </button>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="rounded-2xl bg-slate-900 border border-slate-800 p-4 flex flex-col gap-2">
+            <h2 className="text-sm font-semibold text-slate-200">Камера</h2>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-slate-400">Температура</span>
+              <span className="font-mono text-lg">{(state?.chamber.temperatureC ?? 0).toFixed(1)} °C</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-slate-400">Давление</span>
+              <span className="font-mono text-lg">{(state?.chamber.pressureMPa ?? 0).toFixed(3)} МПа</span>
+            </div>
+          </div>
+          <div className="rounded-2xl bg-slate-900 border border-slate-800 p-4 flex flex-col gap-2">
+            <h2 className="text-sm font-semibold text-slate-200">Парогенератор</h2>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-slate-400">Температура</span>
+              <span className="font-mono text-lg">{(state?.generator.temperatureC ?? 0).toFixed(1)} °C</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-slate-400">Давление</span>
+              <span className="font-mono text-lg">{(state?.generator.pressureMPa ?? 0).toFixed(3)} МПа</span>
+            </div>
+          </div>
+          <div className="rounded-2xl bg-slate-900 border border-slate-800 p-4 flex flex-col gap-2">
+            <h2 className="text-sm font-semibold text-slate-200">Служебные</h2>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-slate-400">Рубашка (температура)</span>
+              <span className="font-mono text-lg">{(state?.jacket.temperatureC ?? 0).toFixed(1)} °C</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-slate-400">Уровень воды</span>
+              <span className="font-mono text-lg">{(state?.waterLevelPercent ?? 0).toFixed(0)}%</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-slate-400">Дверь</span>
+              <span className="font-mono text-lg">{doorStatusLabel}</span>
+            </div>
+          </div>
+        </div>
+        <div className="mt-2 text-xs text-slate-500">
+          Дополнительные диагностические индикаторы (насос, клапаны и т.п.) появятся после экспорта флагов из core.
         </div>
       </div>
     );
@@ -480,8 +654,8 @@ export default function GoldbergSterilizerUI() {
                        )}
                      </div>
                    </div>
-                 </div>
-              </div>
+                </div>
+             </div>
            </div>
         ) : currentScreen === 'REPORTS' ? (
              <div className="h-full flex flex-col">
@@ -519,9 +693,17 @@ export default function GoldbergSterilizerUI() {
                         )}
                       </tbody>
                     </table>
-                   </div>
+                  </div>
                 </div>
              </div>
+        ) : currentScreen === 'SERVICE' ? (
+            <ServiceScreen />
+        ) : currentScreen === 'ERROR_LOG' ? (
+            <ErrorLogScreen />
+        ) : currentScreen === 'VACUUM_TEST' ? (
+            <VacuumTestScreen />
+        ) : currentScreen === 'SYSTEM_CHECK' ? (
+            <SystemCheckScreen />
         ) : (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
@@ -534,12 +716,19 @@ export default function GoldbergSterilizerUI() {
 
       {/* BOTTOM ACTION BAR */}
       <footer className="h-24 bg-white border-t border-slate-200 shadow-[0_-5px_25px_rgba(0,0,0,0.05)] flex items-center px-6 gap-4 shrink-0 z-30">
-        
+        {currentScreen !== 'MAIN' && (
+          <button
+            onClick={() => setCurrentScreen('MAIN')}
+            className="h-16 px-5 rounded-xl border-2 border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold flex items-center gap-2 transition-all active:scale-95"
+          >
+            <ArrowLeft size={18} /> Назад
+          </button>
+        )}
         {/* SMART DOOR BUTTON */}
         <button 
           onClick={() => setShowDoorModal(true)}
           disabled={systemState === 'RUNNING' || doorState.status === 'LOCKED'}
-          className={`h-16 px-6 rounded-xl border-2 flex flex-col items-center justify-center gap-1 font-bold transition-all active:scale-95 ${doorState.color} ${doorState.status === 'LOCKED' ? 'opacity-100 cursor-not-allowed' : 'hover:shadow-md'}`}
+          className={`h-16 px-8 min-w-[140px] rounded-xl border-2 flex flex-col items-center justify-center gap-1 font-bold transition-all active:scale-95 ${doorState.color} ${doorState.status === 'LOCKED' ? 'opacity-100 cursor-not-allowed' : 'hover:shadow-md'}`}
         >
           <doorState.icon size={24} />
           <div className="flex flex-col items-center leading-none">
@@ -554,7 +743,7 @@ export default function GoldbergSterilizerUI() {
         {systemState === 'RUNNING' ? (
           <button 
             onClick={() => setShowStopModal(true)}
-            className="h-16 w-full max-w-md bg-slate-800 hover:bg-red-600 text-white rounded-xl shadow-lg flex items-center justify-center gap-4 transition-all font-black text-2xl tracking-widest uppercase active:scale-[0.99]"
+            className="h-16 w-full max-w-md bg-red-600 hover:bg-red-700 text-white rounded-xl shadow-lg flex items-center justify-center gap-4 transition-all font-black text-2xl tracking-widest uppercase active:scale-[0.99]"
           >
             <Square size={24} fill="currentColor" /> СТОП
           </button>

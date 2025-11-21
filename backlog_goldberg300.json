@@ -1,0 +1,149 @@
+{
+  "project": "goldberg-300-simulator-ui",
+  "version": "MVP+ Backlog v1",
+  "phases": [
+    {
+      "name": "Phase 1 - MVP+",
+      "id": "phase_1_mvp_plus",
+      "items": [
+        {
+          "id": "A1",
+          "title": "SERVICE screen (service/tests menu)",
+          "description": "Implement currentScreen === 'SERVICE'. Show menu items: Vacuum test, System check, Settings, Error log, Calibration (placeholders allowed initially) plus Back button to MAIN. Link existing 'Service' QuickAction to this screen.",
+          "priority": "P1",
+          "modules": [
+            "ui"
+          ]
+        },
+        {
+          "id": "A2",
+          "title": "ERROR_LOG screen (error history)",
+          "description": "Implement currentScreen === 'ERROR_LOG'. Show list/table of historical errors with timestamp, error code, message. In core-sterilizer add errorHistory array and push items whenever an error is raised. Link 'Error log' QuickAction to this screen.",
+          "priority": "P1",
+          "modules": [
+            "core",
+            "ui"
+          ]
+        },
+        {
+          "id": "B1",
+          "title": "Vacuum test logic in core",
+          "description": "Complete startVacuumTest(...) in core-sterilizer. Implement separate scenario without standard program: parameters should include stabilizationTimeSec, testTimeSec and allowedLeakRate. Compute result (pass/fail) and store in lastVacuumTests collection.",
+          "priority": "P1",
+          "modules": [
+            "core"
+          ]
+        },
+        {
+          "id": "B2",
+          "title": "VACUUM_TEST screen",
+          "description": "Implement currentScreen === 'VACUUM_TEST' (or nested under SERVICE). Screen fields: stabilization time, test time, result text. Add 'Start test' button that calls engine.startVacuumTest(...) and subscribes to result from core state.",
+          "priority": "P1",
+          "modules": [
+            "ui"
+          ]
+        },
+        {
+          "id": "C1",
+          "title": "SYSTEM_CHECK screen",
+          "description": "Implement system check screen that shows all key parameters in a diagnostic layout: chamber/generator/jacket temperature and pressure, water level, door state, vacuum pump state, valve states, etc. Use SterilizerState/IO data. Accessible from SERVICE menu as 'System check'.",
+          "priority": "P2",
+          "modules": [
+            "core",
+            "ui"
+          ]
+        },
+        {
+          "id": "D1",
+          "title": "Program set aligned with manual",
+          "description": "Extend PROGRAMS and PROGRAM_DETAILS to match P1..P8 modes from the official manual (textile, instruments, liquids, rubber, silicone, prion, Bowie-Dick, etc). Update PROGRAMS/PROGRAM_DETAILS definitions and PROGRAMS screen to show full list and correct parameters.",
+          "priority": "P2",
+          "modules": [
+            "core",
+            "ui"
+          ]
+        },
+        {
+          "id": "E1",
+          "title": "Extended cycle reports",
+          "description": "Extend CycleSummary model and REPORTS screen: include cycle start datetime, total duration, final result (success, error, aborted) and primary error code if not successful. Render these fields in the cycles table.",
+          "priority": "P1",
+          "modules": [
+            "core",
+            "ui"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Phase 2 - Near full parity with manual",
+      "id": "phase_2_parity",
+      "items": [
+        {
+          "id": "D2",
+          "title": "Program editing with password",
+          "description": "In SERVICE menu, add 'Program setup' flow: password entry screen -> program list -> program edit form (at least sterilization temperature, sterilization time, possibly number of prevacuum steps). In core, support storing overridden program parameters and using them when starting cycles.",
+          "priority": "P2",
+          "modules": [
+            "core",
+            "ui"
+          ]
+        },
+        {
+          "id": "F1",
+          "title": "General settings screen",
+          "description": "Add 'Settings' screen (SERVICE). Fields may include: date/time, auto-start/auto-stop flags if needed, cooling/eco-water options, device info (model, serial, software version). At first values may be stored only in memory; later can be persisted.",
+          "priority": "P3",
+          "modules": [
+            "core",
+            "ui"
+          ]
+        },
+        {
+          "id": "F2",
+          "title": "Service calibration",
+          "description": "Implement calibration API in core: per-sensor offsets for temperature and pressure, plus actions to apply and reset them. In UI, add protected calibration screen (behind password) where service engineer can enter reference readings and store offsets.",
+          "priority": "P3",
+          "modules": [
+            "core",
+            "ui"
+          ]
+        },
+        {
+          "id": "E2",
+          "title": "Power failure handling",
+          "description": "Add powerFail/powerResume support in core engine: be able to mark that cycle was interrupted by power loss and either resume or safely abort on restart. In UI, show modal overlay: 'Power failure detected, continue cycle?' with options to continue or terminate the cycle and log appropriate result.",
+          "priority": "P3",
+          "modules": [
+            "core",
+            "ui"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Phase 3 - Cosmetic & UX alignment",
+      "id": "phase_3_cosmetic",
+      "items": [
+        {
+          "id": "G1",
+          "title": "Specialized error screens",
+          "description": "For a subset of key errors (e.g., no water, heater fault, vacuum fault, door fault, overpressure/overtemperature) provide dedicated UI templates: specific icon, header and recommendation text. Map ErrorCode values to these templates instead of a generic emergency overlay.",
+          "priority": "P3",
+          "modules": [
+            "ui"
+          ]
+        },
+        {
+          "id": "G2",
+          "title": "Door and phase micro-animations",
+          "description": "Add small visual transitions for door operations and phase changes: transient banners like 'Door opening', 'Door closing', and subtle phase transition animations on the running dashboard. No logic change, UX-only.",
+          "priority": "P3",
+          "modules": [
+            "ui"
+          ]
+        }
+      ]
+    }
+  ]
+}
