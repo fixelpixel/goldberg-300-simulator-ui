@@ -344,6 +344,10 @@ export default function GoldbergSterilizerUI() {
   const doorOpen = !!state?.door.open;
   
   // Phase change toast
+  const hazard = state?.errors?.[0];
+  const hazardInfo = hazard ? ERROR_MAP[hazard.code] : null;
+  const [pendingProgramId, setPendingProgramId] = useState<string | null>(null);
+
   useEffect(() => {
     if (!state?.cycle.currentPhase) return;
     setPhaseToast(`Фаза: ${phaseNameMap[state.cycle.currentPhase] || state.cycle.currentPhase}`);
@@ -480,9 +484,6 @@ export default function GoldbergSterilizerUI() {
   
   const doorState = getDoorStatus();
 
-  const hazard = state?.errors?.[0];
-  const hazardInfo = hazard ? ERROR_MAP[hazard.code] : null;
-  const [pendingProgramId, setPendingProgramId] = useState<string | null>(null);
 
   // Actions
   const startCycle = (programId: string) => {
