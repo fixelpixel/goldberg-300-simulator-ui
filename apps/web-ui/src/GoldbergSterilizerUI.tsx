@@ -190,6 +190,41 @@ export default function GoldbergSterilizerUI() {
   const hazard = state?.errors?.[0];
   const hazardInfo = hazard ? ERROR_MAP[hazard.code] : undefined;
 
+  const QuickCard = ({
+    title,
+    subtitle,
+    icon: Icon,
+    onClick,
+    variant = 'default',
+  }: {
+    title: string;
+    subtitle: string;
+    icon: any;
+    onClick: () => void;
+    variant?: 'default' | 'primary';
+  }) => (
+    <button
+      onClick={onClick}
+      className={`text-left p-4 rounded-2xl border-2 shadow-sm transition flex items-start gap-3 h-full w-full ${
+        variant === 'primary'
+          ? 'bg-emerald-50 border-emerald-200 hover:border-emerald-400'
+          : 'bg-white border-slate-200 hover:border-cyan-400'
+      }`}
+    >
+      <div
+        className={`p-3 rounded-xl ${
+          variant === 'primary' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
+        }`}
+      >
+        <Icon size={22} />
+      </div>
+      <div>
+        <div className="font-bold text-base text-slate-800 leading-tight">{title}</div>
+        <div className="text-xs text-slate-500 font-medium mt-1">{subtitle}</div>
+      </div>
+    </button>
+  );
+
   const ScreenMain = () => (
     <div className="p-6 grid grid-cols-12 gap-6">
       <div className="col-span-5 flex flex-col gap-4">
