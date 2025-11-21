@@ -6,6 +6,7 @@ import {
   type SterilizerState,
 } from '@core';
 import { SimulationIO, type InternalPhysicalState } from '@sim';
+import { engineStore } from './store';
 
 // Набор программ, синхронный с ядром и UI.
 export const PROGRAMS: ProgramConfig[] = [
@@ -139,13 +140,23 @@ type EngineControls = {
 export type EngineMode = 'local' | 'remote';
 type ConnectionStatus = 'local' | 'connecting' | 'connected' | 'disconnected' | 'fallback';
 
-export function useEngineSimulation(mode: EngineMode = 'local', wsUrl = 'ws://localhost:8090') {
+export function useEngineSimulation(
+  mode: EngineMode = 'local',
+  wsUrl = 'ws://localhost:8090',
+  opts?: { shouldUpdate?: () => boolean },
+) {
   const engineRef = useRef<SterilizerEngine | null>(null);
   const simRef = useRef<SimulationIO | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const [state, setState] = useState<SterilizerState | null>(null);
   const [ready, setReady] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('local');
+  const lastStateStrRef = useRef<string>('');
+  const lastSentAtRef = useRef<number>(0);
+  const shouldUpdateRef = useRef<() => boolean>(() => true);
+
+  // обновляем ссылку на правило обновления без пересоздания эффекта
+  shouldUpdateRef.current = opts?.shouldUpdate ?? (() => true);
 
   const programs = useMemo(() => PROGRAMS, []);
 
@@ -168,7 +179,9 @@ export function useEngineSimulation(mode: EngineMode = 'local', wsUrl = 'ws://lo
       });
       engineRef.current = engine;
       setReady(true);
-      setState(engine.getState());
+            const snap = engine.getState();
+            setState(snap);
+            engineStore.setSnapshot(snap);
       setConnectionStatus(mode === 'remote' ? 'fallback' : 'local');
 
       let last = performance.now();
@@ -177,12 +190,24 @@ export function useEngineSimulation(mode: EngineMode = 'local', wsUrl = 'ws://lo
         const dtSec = (now - last) / 1000;
         last = now;
 
+        const allow = shouldUpdateRef.current ? shouldUpdateRef.current() : true;
+        if (!allow) return;
+
         simRef.current?.stepPhysics(dtSec);
         engineRef.current
           ?.tick(dtSec * 1000)
           .then(() => {
             const snapshot = engineRef.current ? JSON.parse(JSON.stringify(engineRef.current.getState())) : null;
-            setState(snapshot);
+            if (snapshot) {
+              const nowMs = Date.now();
+              const sig = makeSignature(snapshot);
+              if (sig !== lastStateStrRef.current && nowMs - lastSentAtRef.current > 1500) {
+                lastStateStrRef.current = sig;
+                lastSentAtRef.current = nowMs;
+                setState(snapshot);
+                engineStore.setSnapshot(snapshot);
+              }
+            }
           })
           .catch((err) => console.error('Engine tick error', err));
       }, 200);
@@ -307,3 +332,31 @@ export function useEngineSimulation(mode: EngineMode = 'local', wsUrl = 'ws://lo
 
   return { state, programs, controls, ready, connectionStatus };
 }
+  const makeSignature = (s: SterilizerState) => {
+    const round = (v: number | undefined, d = 1) =>
+      typeof v === 'number' ? Number(v.toFixed(d)) : 0;
+    return JSON.stringify({
+      chamber: {
+        p: round(s.chamber.pressureMPa, 3),
+        t: round(s.chamber.temperatureC, 1),
+      },
+      generator: {
+        p: round(s.generator.pressureMPa, 3),
+        t: round(s.generator.temperatureC, 1),
+        w: Math.round(s.generator.waterLevelPercent ?? 0),
+      },
+      jacket: round(s.jacket.pressureMPa, 3),
+      door: s.door,
+      cycle: {
+        active: s.cycle.active,
+        phase: s.cycle.currentPhase,
+        phaseElapsedSec: Math.floor(s.cycle.phaseElapsedSec),
+        phaseTotalSec: Math.floor(s.cycle.phaseTotalSec),
+        totalElapsedSecSec: Math.floor(s.cycle.totalElapsedSecSec ?? 0),
+        programId: s.cycle.currentProgram?.id,
+      },
+      errors: s.errors?.map((e) => e.code).join(','),
+      power: s.powerFailure?.pending,
+      historyCount: s.lastCompletedCycles?.length ?? 0,
+    });
+  };

@@ -18,7 +18,10 @@ import {
   Lock,
   History,
   Zap,
-  Tags
+  Tags,
+  Droplet,
+  Flame,
+  ShieldAlert
 } from 'lucide-react';
 import { useEngineSimulation, PROGRAM_DETAILS, type EngineMode } from './engineClient';
 import { ERROR_MAP } from './errorDictionary';
@@ -39,6 +42,73 @@ type ScreenType =
   | 'CALIBRATION';
 
 type SystemState = 'IDLE' | 'RUNNING' | 'PAUSED' | 'COMPLETED' | 'ERROR';
+type CalibrationOffsets = {
+  chamberTempOffsetC: number;
+  chamberPressureOffset: number;
+  generatorTempOffsetC: number;
+  generatorPressureOffset: number;
+};
+
+// Универсальная модалка с цифровым набором
+const DialPadModal = ({
+  open,
+  label,
+  initialValue,
+  onSubmit,
+  onClose,
+}: {
+  open: boolean;
+  label: string;
+  initialValue: string;
+  onSubmit: (val: number) => void;
+  onClose: () => void;
+}) => {
+  const [value, setValue] = useState(initialValue);
+  useEffect(() => {
+    if (open) setValue(initialValue);
+  }, [open, initialValue]);
+
+  if (!open) return null;
+
+  const handleClick = (d: string) => {
+    setValue((prev) => (prev.length > 8 ? prev : prev + d));
+  };
+  const handleErase = () => setValue((prev) => prev.slice(0, -1));
+  const handleClear = () => setValue('');
+  const submit = () => {
+    const num = Number(value);
+    onSubmit(Number.isFinite(num) ? num : 0);
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-[80] bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm">
+        <div className="text-sm font-semibold text-slate-600 mb-2">{label}</div>
+        <div className="text-2xl font-mono tracking-[0.3em] bg-slate-100 border-2 border-slate-200 rounded-xl px-5 py-3 text-center mb-4">
+          {value || '—'}
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          {['1','2','3','4','5','6','7','8','9','0','00','.'].map((d) => (
+            <button
+              key={d}
+              onClick={() => handleClick(d)}
+              className="h-10 rounded-xl bg-slate-100 hover:bg-cyan-50 border border-slate-200 text-lg font-bold text-slate-800 transition-colors"
+            >
+              {d}
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-2 mt-4">
+          <button onClick={handleClear} className="flex-1 py-2 rounded-xl bg-slate-100 text-slate-700 font-bold hover:bg-slate-200">Сброс</button>
+          <button onClick={handleErase} className="flex-1 py-2 rounded-xl bg-slate-100 text-slate-700 font-bold hover:bg-slate-200">⌫</button>
+          <button onClick={submit} className="flex-1 py-2 rounded-xl bg-emerald-600 text-white font-black hover:bg-emerald-500">OK</button>
+        </div>
+        <button onClick={onClose} className="mt-2 w-full py-2 rounded-xl bg-slate-200 text-slate-700 font-bold hover:bg-slate-300">Отмена</button>
+      </div>
+    </div>
+  );
+};
 
 // --- Helper Functions ---
 
@@ -147,7 +217,7 @@ const BigMetric = ({ label, value, unit, active = false, alert = false }: any) =
 );
 
 const QuickActionCard = ({ title, subtitle, icon: Icon, onClick, colorClass = "bg-white hover:border-cyan-400" }: any) => (
-  <button onClick={onClick} className={`text-left p-6 rounded-2xl border-2 border-slate-200 shadow-sm transition-all hover:shadow-lg active:scale-95 flex items-start gap-4 h-full w-full group ${colorClass}`}>
+  <button onClick={onClick} className={`text-left p-6 rounded-2xl border-2 border-slate-200 shadow-sm transition-shadow hover:shadow-lg flex items-start gap-4 h-full w-full group ${colorClass} transform-none active:transform-none`}>
     <div className="p-3 rounded-xl bg-slate-100 text-slate-600 group-hover:bg-cyan-50 group-hover:text-cyan-600 transition-colors">
       <Icon size={32} />
     </div>
@@ -158,13 +228,56 @@ const QuickActionCard = ({ title, subtitle, icon: Icon, onClick, colorClass = "b
   </button>
 );
 
+// PIN keypad isolated to avoid parent re-renders
+const PinPad = React.memo(function PinPad({ onSuccess }: { onSuccess: () => void }) {
+  const [pin, setPin] = useState('');
+  const handlePinClick = (digit: string) => {
+    if (pin.length >= 4) return;
+    setPin((prev) => prev + digit);
+  };
+  const handleErase = () => setPin((prev) => prev.slice(0, -1));
+  const handleCancel = () => setPin('');
+  const handleSubmit = () => {
+    if (pin === '1111') onSuccess();
+  };
+  return (
+    <div className="flex flex-col items-center justify-center flex-1 gap-3">
+      <div className="text-xs font-semibold text-slate-600">PIN для редактирования (1111)</div>
+      <div className="text-2xl font-mono tracking-[0.3em] bg-slate-100 border-2 border-slate-200 rounded-xl px-5 py-2 w-48 text-center">
+        {pin.padEnd(4, '•')}
+      </div>
+      <div className="grid grid-cols-3 gap-2 w-52">
+        {['1','2','3','4','5','6','7','8','9','С','0','⌫'].map(key => (
+          <button
+            key={key}
+            onClick={() => {
+              if (key === 'С') { handleCancel(); return; }
+              if (key === '⌫') { handleErase(); return; }
+              handlePinClick(key);
+            }}
+            className="h-10 rounded-xl bg-slate-100 hover:bg-cyan-50 border border-slate-200 text-lg font-bold text-slate-800 transition-colors"
+          >
+            {key === 'С' ? 'Сброс' : key}
+          </button>
+        ))}
+      </div>
+      <div className="flex gap-3">
+        <button onClick={handleSubmit} className="px-4 py-2 rounded-xl bg-emerald-600 text-white font-black hover:bg-emerald-500 text-sm">Ввод</button>
+        <button onClick={handleCancel} className="px-4 py-2 rounded-xl bg-slate-200 text-slate-700 font-bold hover:bg-slate-300 text-sm">Отмена</button>
+      </div>
+    </div>
+  );
+});
+
 // --- Main App ---
 
 export default function GoldbergSterilizerUI() {
   const [engineMode] = useState<EngineMode>('local');
-  const { state, programs, controls, ready, connectionStatus } = useEngineSimulation(engineMode);
-  
   const [currentScreen, setCurrentScreen] = useState<ScreenType>('MAIN');
+  const { state, programs, controls, ready, connectionStatus } = useEngineSimulation(engineMode, 'ws://localhost:8090', {
+    shouldUpdate: () => !['PROGRAM_SETUP', 'CALIBRATION', 'SETTINGS'].includes(currentScreen),
+  });
+  
   const [selectedProgramId, setSelectedProgramId] = useState<string>('');
   const [programTab, setProgramTab] = useState<'standard' | 'special'>('standard');
   
@@ -176,10 +289,16 @@ export default function GoldbergSterilizerUI() {
   // DateTime
   const [dateTime, setDateTime] = useState(new Date());
 
+  const isInteractiveScreen = useMemo(
+    () => ['PROGRAM_SETUP', 'CALIBRATION', 'SETTINGS'].includes(currentScreen),
+    [currentScreen]
+  );
+
   useEffect(() => {
-    const timer = setInterval(() => setDateTime(new Date()), 1000);
+    if (isInteractiveScreen) return;
+    const timer = setInterval(() => setDateTime(new Date()), 5000);
     return () => clearInterval(timer);
-  }, []);
+  }, [isInteractiveScreen]);
 
   // Derived State
   const currentProgram = useMemo(() => {
@@ -488,15 +607,41 @@ export default function GoldbergSterilizerUI() {
   };
 
   const ProgramSetupScreen = () => {
-    const [pin, setPin] = useState('');
     const [unlocked, setUnlocked] = useState(false);
-    const handleUnlock = () => {
-      if (pin === '1111') setUnlocked(true);
-    };
+    const [editingId, setEditingId] = useState<string | null>(null);
+    const [draft, setDraft] = useState<{ setTempC: number; sterilizationTimeSec: number; preVacuumCount: number; dryingTimeSec: number } | null>(null);
+    const [dial, setDial] = useState<{ open: boolean; label: string; initial: string; onConfirm: (v: number) => void }>({
+      open: false,
+      label: '',
+      initial: '',
+      onConfirm: () => {},
+    });
+
     const data = programs.map((p) => {
       const ov = state?.programOverrides?.[p.id] || {};
       return { ...p, ...ov };
     });
+
+    const openEditor = (pId: string) => {
+      const base = data.find((p) => p.id === pId);
+      if (!base) return;
+      setEditingId(pId);
+      setDraft({
+        setTempC: base.setTempC,
+        sterilizationTimeSec: base.sterilizationTimeSec,
+        preVacuumCount: base.preVacuumCount,
+        dryingTimeSec: base.dryingTimeSec,
+      });
+    };
+
+    const applyDraft = () => {
+      if (editingId && draft) {
+        controls.setProgramOverride(editingId, draft);
+      }
+      setEditingId(null);
+      setDraft(null);
+    };
+
     return (
       <div className="flex flex-col h-full w-full bg-white text-slate-900 rounded-2xl p-6 gap-4 border border-slate-200">
         <div className="flex items-center justify-between">
@@ -505,62 +650,82 @@ export default function GoldbergSterilizerUI() {
         </div>
 
         {!unlocked ? (
-          <div className="bg-slate-50 border-2 border-slate-200 rounded-xl p-4 flex items-center gap-3 w-full max-w-md">
-            <input value={pin} onChange={(e) => setPin(e.target.value)} placeholder="Введите код (1111)" className="flex-1 px-3 py-2 rounded-lg border border-slate-200 focus:border-cyan-500 outline-none" />
-            <button onClick={handleUnlock} className="px-4 py-2 rounded-lg bg-cyan-600 text-white font-bold hover:bg-cyan-500">Открыть</button>
-          </div>
+          <PinPad onSuccess={() => setUnlocked(true)} />
         ) : (
-          <div className="flex-1 overflow-y-auto pr-2 space-y-3">
-            {data.map((p) => (
-              <div key={p.id} className="bg-white border-2 border-slate-200 rounded-xl p-4 flex flex-col gap-2 shadow-sm">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <div className="text-lg font-bold text-slate-800">{p.name}</div>
-                    <div className="text-xs text-slate-500">{PROGRAM_DETAILS[p.id]?.desc}</div>
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 flex-1 overflow-y-auto">
+              {data.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => openEditor(p.id)}
+                  className="bg-white border-2 border-slate-200 rounded-xl p-4 text-left shadow-sm hover:border-cyan-500 transition-colors"
+                >
+                  <div className="text-lg font-bold text-slate-800">{p.name}</div>
+                  <div className="text-xs text-slate-500 mb-2">{PROGRAM_DETAILS[p.id]?.desc}</div>
+                  <div className="flex gap-2 text-xs text-slate-600">
+                    <span className="px-2 py-1 bg-slate-100 rounded">{p.setTempC}°C</span>
+                    <span className="px-2 py-1 bg-slate-100 rounded">{secondsToText(p.sterilizationTimeSec)}</span>
                   </div>
-                  <button onClick={() => controls.setProgramOverride(p.id, {})} className="text-xs text-slate-400 hover:text-slate-600">Сбросить</button>
-                </div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                  <label className="flex flex-col gap-1 text-slate-600">
-                    Температура, °C
-                    <input
-                      type="number"
-                      defaultValue={p.setTempC}
-                      onBlur={(e) => controls.setProgramOverride(p.id, { setTempC: Number(e.target.value) })}
-                      className="px-3 py-2 rounded-lg border border-slate-200 focus:border-cyan-500 outline-none"
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1 text-slate-600">
-                    Стерилизация, сек
-                    <input
-                      type="number"
-                      defaultValue={p.sterilizationTimeSec}
-                      onBlur={(e) => controls.setProgramOverride(p.id, { sterilizationTimeSec: Number(e.target.value) })}
-                      className="px-3 py-2 rounded-lg border border-slate-200 focus:border-cyan-500 outline-none"
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1 text-slate-600">
-                    Предвакуум, шт
-                    <input
-                      type="number"
-                      defaultValue={p.preVacuumCount}
-                      onBlur={(e) => controls.setProgramOverride(p.id, { preVacuumCount: Number(e.target.value) })}
-                      className="px-3 py-2 rounded-lg border border-slate-200 focus:border-cyan-500 outline-none"
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1 text-slate-600">
-                    Сушка, сек
-                    <input
-                      type="number"
-                      defaultValue={p.dryingTimeSec}
-                      onBlur={(e) => controls.setProgramOverride(p.id, { dryingTimeSec: Number(e.target.value) })}
-                      className="px-3 py-2 rounded-lg border border-slate-200 focus:border-cyan-500 outline-none"
-                    />
-                  </label>
+                </button>
+              ))}
+            </div>
+
+            {editingId && draft && (
+              <div className="fixed inset-0 z-[70] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+                <div className="bg-white rounded-2xl p-6 w-full max-w-lg shadow-2xl border border-slate-200">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <div className="text-xl font-bold text-slate-800">{data.find((p) => p.id === editingId)?.name}</div>
+                      <div className="text-xs text-slate-500">{PROGRAM_DETAILS[editingId]?.desc}</div>
+                    </div>
+                    <button onClick={() => { setEditingId(null); setDraft(null); }} className="text-sm text-slate-500 hover:text-slate-700">Закрыть</button>
+                  </div>
+                  <div className="space-y-3 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-600">Температура, °C</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono">{draft.setTempC}</span>
+                        <button onClick={() => setDial({ open: true, label: 'Температура, °C', initial: String(draft.setTempC), onConfirm: (v) => setDraft({ ...draft, setTempC: v }) })} className="text-xs text-cyan-600">Изменить</button>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-600">Стерилизация, сек</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono">{draft.sterilizationTimeSec}</span>
+                        <button onClick={() => setDial({ open: true, label: 'Стерилизация, сек', initial: String(draft.sterilizationTimeSec), onConfirm: (v) => setDraft({ ...draft, sterilizationTimeSec: v }) })} className="text-xs text-cyan-600">Изменить</button>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-600">Предвакуум, шт</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono">{draft.preVacuumCount}</span>
+                        <button onClick={() => setDial({ open: true, label: 'Предвакуум, шт', initial: String(draft.preVacuumCount), onConfirm: (v) => setDraft({ ...draft, preVacuumCount: v }) })} className="text-xs text-cyan-600">Изменить</button>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-600">Сушка, сек</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono">{draft.dryingTimeSec}</span>
+                        <button onClick={() => setDial({ open: true, label: 'Сушка, сек', initial: String(draft.dryingTimeSec), onConfirm: (v) => setDraft({ ...draft, dryingTimeSec: v }) })} className="text-xs text-cyan-600">Изменить</button>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex gap-3 mt-4">
+                    <button onClick={() => { if (editingId) controls.setProgramOverride(editingId, {}); setDraft(null); setEditingId(null); }} className="flex-1 py-2 rounded-xl bg-slate-100 text-slate-700 font-bold hover:bg-slate-200">Сбросить</button>
+                    <button onClick={applyDraft} className="flex-1 py-2 rounded-xl bg-emerald-600 text-white font-black hover:bg-emerald-500">Сохранить</button>
+                  </div>
                 </div>
               </div>
-            ))}
-          </div>
+            )}
+
+            <DialPadModal
+              open={dial.open}
+              label={dial.label}
+              initialValue={dial.initial}
+              onSubmit={dial.onConfirm}
+              onClose={() => setDial({ ...dial, open: false })}
+            />
+          </>
         )}
       </div>
     );
@@ -577,6 +742,12 @@ export default function GoldbergSterilizerUI() {
       setTempCh(0); setPressCh(0); setTempGen(0); setPressGen(0);
       controls.resetCalibrationOffsets();
     };
+    const [dial, setDial] = useState<{ open: boolean; label: string; initial: string; onConfirm: (v: number) => void }>({
+      open: false,
+      label: '',
+      initial: '',
+      onConfirm: () => {},
+    });
     return (
       <div className="flex flex-col h-full w-full bg-white text-slate-900 rounded-2xl p-6 gap-4 border border-slate-200">
         <div className="flex items-center justify-between">
@@ -586,31 +757,42 @@ export default function GoldbergSterilizerUI() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="bg-white border-2 border-slate-200 rounded-xl p-4 flex flex-col gap-3">
             <div className="text-sm font-semibold text-slate-700">Камера</div>
-            <label className="text-sm text-slate-600 flex flex-col gap-1">
-              Температура offset, °C
-              <input type="number" value={tempCh} onChange={(e) => setTempCh(Number(e.target.value))} className="px-3 py-2 rounded-lg border border-slate-200 focus:border-cyan-500 outline-none" />
-            </label>
-            <label className="text-sm text-slate-600 flex flex-col gap-1">
-              Давление offset, МПа
-              <input type="number" value={pressCh} onChange={(e) => setPressCh(Number(e.target.value))} className="px-3 py-2 rounded-lg border border-slate-200 focus:border-cyan-500 outline-none" />
-            </label>
+            <div className="flex items-center justify-between text-sm">
+              <div className="text-slate-600">Температура offset, °C</div>
+              <button onClick={() => setDial({ open: true, label: 'Температура offset, °C', initial: String(tempCh), onConfirm: (v) => setTempCh(v) })} className="text-xs text-cyan-600">Изменить</button>
+            </div>
+            <div className="px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm">Текущее: {tempCh} °C</div>
+            <div className="flex items-center justify-between text-sm">
+              <div className="text-slate-600">Давление offset, МПа</div>
+              <button onClick={() => setDial({ open: true, label: 'Давление offset, МПа', initial: String(pressCh), onConfirm: (v) => setPressCh(v) })} className="text-xs text-cyan-600">Изменить</button>
+            </div>
+            <div className="px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm">Текущее: {pressCh} МПа</div>
           </div>
           <div className="bg-white border-2 border-slate-200 rounded-xl p-4 flex flex-col gap-3">
             <div className="text-sm font-semibold text-slate-700">Парогенератор</div>
-            <label className="text-sm text-slate-600 flex flex-col gap-1">
-              Температура offset, °C
-              <input type="number" value={tempGen} onChange={(e) => setTempGen(Number(e.target.value))} className="px-3 py-2 rounded-lg border border-slate-200 focus:border-cyan-500 outline-none" />
-            </label>
-            <label className="text-sm text-slate-600 flex flex-col gap-1">
-              Давление offset, МПа
-              <input type="number" value={pressGen} onChange={(e) => setPressGen(Number(e.target.value))} className="px-3 py-2 rounded-lg border border-slate-200 focus:border-cyan-500 outline-none" />
-            </label>
+            <div className="flex items-center justify-between text-sm">
+              <div className="text-slate-600">Температура offset, °C</div>
+              <button onClick={() => setDial({ open: true, label: 'Температура offset, °C', initial: String(tempGen), onConfirm: (v) => setTempGen(v) })} className="text-xs text-cyan-600">Изменить</button>
+            </div>
+            <div className="px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm">Текущее: {tempGen} °C</div>
+            <div className="flex items-center justify-between text-sm">
+              <div className="text-slate-600">Давление offset, МПа</div>
+              <button onClick={() => setDial({ open: true, label: 'Давление offset, МПа', initial: String(pressGen), onConfirm: (v) => setPressGen(v) })} className="text-xs text-cyan-600">Изменить</button>
+            </div>
+            <div className="px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm">Текущее: {pressGen} МПа</div>
           </div>
         </div>
         <div className="flex gap-3">
           <button onClick={apply} className="px-4 py-3 rounded-xl bg-cyan-600 text-white font-bold hover:bg-cyan-500">Применить</button>
           <button onClick={reset} className="px-4 py-3 rounded-xl bg-slate-100 text-slate-700 font-bold hover:bg-slate-200">Сбросить</button>
         </div>
+        <DialPadModal
+          open={dial.open}
+          label={dial.label}
+          initialValue={dial.initial}
+          onSubmit={dial.onConfirm}
+          onClose={() => setDial({ ...dial, open: false })}
+        />
       </div>
     );
   };
@@ -767,14 +949,14 @@ export default function GoldbergSterilizerUI() {
                     <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Быстрый запуск</span>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
-                     <button onClick={() => { setPendingProgramId(programs[0]?.id); setShowStartModal(true); }} className="bg-emerald-50 border-2 border-emerald-100 hover:border-emerald-500 hover:bg-emerald-100 rounded-xl p-5 text-left transition-all group active:scale-95">
+                     <button onClick={() => { setPendingProgramId(programs[0]?.id); setShowStartModal(true); }} className="bg-emerald-50 border-2 border-emerald-100 hover:border-emerald-500 hover:bg-emerald-100 rounded-xl p-5 text-left transition-colors group transform-none active:transform-none">
                        <div className="flex justify-between items-start mb-2">
                          <span className="font-bold text-emerald-800 text-lg group-hover:text-emerald-900">{programs[0]?.name}</span>
                          <Play className="text-emerald-600 bg-emerald-200 rounded-full p-1 box-content" size={16} fill="currentColor" />
                        </div>
                        <div className="text-emerald-600/70 font-medium text-sm">Основной режим</div>
                      </button>
-                     <button onClick={() => { setPendingProgramId('prog_134_fast'); setShowStartModal(true); }} className="bg-slate-50 border-2 border-slate-100 hover:border-cyan-400 hover:bg-white rounded-xl p-5 text-left transition-all group">
+                     <button onClick={() => { setPendingProgramId('prog_134_fast'); setShowStartModal(true); }} className="bg-slate-50 border-2 border-slate-100 hover:border-cyan-400 hover:bg-white rounded-xl p-5 text-left transition-colors group transform-none active:transform-none">
                        <div className="font-bold text-slate-700 text-lg mb-1 group-hover:text-cyan-700">Быстрая 134°C</div>
                        <div className="text-slate-400 text-sm">Быстрый режим</div>
                      </button>
@@ -943,7 +1125,7 @@ export default function GoldbergSterilizerUI() {
         <button 
           onClick={() => setShowDoorModal(true)}
           disabled={systemState === 'RUNNING' || doorState.status === 'LOCKED'}
-          className={`h-16 px-8 min-w-[140px] rounded-xl border-2 flex flex-col items-center justify-center gap-1 font-bold transition-all active:scale-95 ${doorState.color} ${doorState.status === 'LOCKED' ? 'opacity-100 cursor-not-allowed' : 'hover:shadow-md'}`}
+          className={`h-16 px-8 min-w-[140px] rounded-xl border-2 flex flex-col items-center justify-center gap-1 font-bold transition-shadow transform-none active:transform-none ${doorState.color} ${doorState.status === 'LOCKED' ? 'opacity-100 cursor-not-allowed' : 'hover:shadow-md'}`}
         >
           <doorState.icon size={24} />
           <div className="flex flex-col items-center leading-none">
@@ -958,7 +1140,7 @@ export default function GoldbergSterilizerUI() {
         {systemState === 'RUNNING' ? (
           <button 
             onClick={() => setShowStopModal(true)}
-            className="h-16 w-full max-w-md bg-red-600 hover:bg-red-700 text-white rounded-xl shadow-lg flex items-center justify-center gap-4 transition-all font-black text-2xl tracking-widest uppercase active:scale-[0.99]"
+            className="h-16 w-full max-w-md bg-red-600 hover:bg-red-700 text-white rounded-xl shadow-lg flex items-center justify-center gap-4 transition-colors font-black text-2xl tracking-widest uppercase"
           >
             <Square size={24} fill="currentColor" /> СТОП
           </button>
@@ -967,7 +1149,7 @@ export default function GoldbergSterilizerUI() {
             <button 
               onClick={() => { setPendingProgramId(currentProgram.id); setShowStartModal(true); }}
               disabled={systemState === 'ERROR' || doorOpen}
-              className={`h-16 w-full rounded-xl shadow-lg flex items-center justify-center gap-4 transition-all font-black text-2xl tracking-widest uppercase active:scale-[0.99] z-10 ${systemState === 'ERROR' || doorOpen ? 'bg-slate-200 cursor-not-allowed text-slate-400 shadow-none' : 'bg-emerald-600 hover:bg-emerald-500 text-white'}`}
+              className={`h-16 w-full rounded-xl shadow-lg flex items-center justify-center gap-4 transition-colors font-black text-2xl tracking-widest uppercase z-10 ${systemState === 'ERROR' || doorOpen ? 'bg-slate-200 cursor-not-allowed text-slate-400 shadow-none' : 'bg-emerald-600 hover:bg-emerald-500 text-white'}`}
             >
               <Play size={28} fill="currentColor" /> СТАРТ
             </button>
@@ -985,29 +1167,53 @@ export default function GoldbergSterilizerUI() {
       
       {/* 1. ERROR OVERLAY (Enhanced) */}
       {hazard && (
-        <div className="fixed inset-0 z-[60] bg-red-900/95 backdrop-blur-md flex flex-col items-center justify-center text-white animate-in fade-in p-8">
-           <AlertOctagon size={100} className="mb-6 animate-pulse text-red-100" />
-           <div className="text-5xl font-black uppercase tracking-widest mb-2">АВАРИЯ</div>
-           <div className="text-xl font-mono bg-red-950/50 px-6 py-2 rounded mb-8 border border-red-800">{hazard.code}: {hazardInfo?.title || hazard.message}</div>
-           
-           <div className="bg-white/10 p-6 rounded-xl max-w-2xl text-center mb-8 border border-white/20">
-              <div className="text-red-200 uppercase text-xs font-bold tracking-widest mb-2">Рекомендация оператору</div>
-              <div className="text-xl leading-relaxed font-medium">
-                {hazardInfo?.operatorAction ? (
-                    <ul className="list-none">
-                        {hazardInfo.operatorAction.map((item, idx) => (
-                        <li key={idx}>{item}</li>
-                        ))}
-                    </ul>
-                ) : (
-                    hazard.message
-                )}
+        <div className="fixed inset-0 z-[60] bg-slate-950/90 backdrop-blur-lg flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-3xl overflow-hidden border-4 border-slate-200">
+            <div className={`px-6 py-4 flex items-center justify-between ${hazardInfo?.tone === 'danger' ? 'bg-red-600 text-white' : 'bg-amber-500 text-white'}`}>
+              <div className="flex items-center gap-3">
+                {hazardInfo?.icon === 'water' && <Droplet size={32} />}
+                {hazardInfo?.icon === 'temp' && <Flame size={32} />}
+                {hazardInfo?.icon === 'pressure' && <Gauge size={32} />}
+                {hazardInfo?.icon === 'vacuum' && <AlertTriangle size={32} />}
+                {hazardInfo?.icon === 'door' && <DoorOpen size={32} />}
+                {hazardInfo?.icon === 'sensor' && <ShieldAlert size={32} />}
+                {!hazardInfo?.icon && <AlertOctagon size={32} />}
+                <div>
+                  <div className="text-xs uppercase tracking-widest font-bold opacity-80">Авария</div>
+                  <div className="text-2xl font-black flex items-center gap-2">
+                    {hazard.code} — {hazardInfo?.title || hazard.message}
+                  </div>
+                </div>
               </div>
-           </div>
-
-           <button onClick={triggerResetErrors} className="px-12 py-5 bg-white text-red-900 font-black text-xl rounded-xl hover:bg-red-50 shadow-xl uppercase tracking-wider transition-transform active:scale-95">
-             Я понял, сбросить
-           </button>
+              <button onClick={triggerResetErrors} className="px-4 py-2 rounded-xl bg-white text-red-700 font-black hover:bg-red-50">
+                Сбросить
+              </button>
+            </div>
+            <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50">
+              <div className="bg-white border border-slate-200 rounded-2xl p-4">
+                <div className="text-xs uppercase tracking-widest font-bold text-slate-400 mb-2">Рекомендации</div>
+                <div className="text-sm text-slate-700 leading-relaxed">
+                  {hazardInfo?.operatorAction ? (
+                    <ul className="list-disc pl-4 space-y-1">
+                      {hazardInfo.operatorAction.map((item, idx) => (
+                        <li key={idx}>{item}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    hazard.message
+                  )}
+                </div>
+              </div>
+              <div className="bg-white border border-slate-200 rounded-2xl p-4">
+                <div className="text-xs uppercase tracking-widest font-bold text-slate-400 mb-2">Параметры</div>
+                <div className="text-sm text-slate-700 space-y-2">
+                  <div className="flex justify-between"><span>Камера T</span><span className="font-mono">{camTemp}°C</span></div>
+                  <div className="flex justify-between"><span>Камера P</span><span className="font-mono">{camPress} МПа</span></div>
+                  <div className="flex justify-between"><span>Дверь</span><span className="font-mono">{doorOpen ? 'Открыта' : doorLocked ? 'Заблокирована' : 'Закрыта'}</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
