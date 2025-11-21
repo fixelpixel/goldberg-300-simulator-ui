@@ -10,36 +10,68 @@ import { SimulationIO, type InternalPhysicalState } from '@sim';
 // Набор программ, синхронный с ядром и UI.
 export const PROGRAMS: ProgramConfig[] = [
   {
-    id: 'prog_134_5',
-    name: 'Инструменты 134°C / 5 мин',
+    id: 'prog_p1_134_5',
+    name: 'P1 Инструменты 134°C / 5 мин',
     setTempC: 134,
     sterilizationTimeSec: 5 * 60,
     preVacuumCount: 3,
     dryingTimeSec: 10 * 60,
   },
   {
-    id: 'prog_121_20_textile',
-    name: 'Текстиль 121°C / 20 мин',
+    id: 'prog_p2_134_7',
+    name: 'P2 Инструменты 134°C / 7 мин',
+    setTempC: 134,
+    sterilizationTimeSec: 7 * 60,
+    preVacuumCount: 3,
+    dryingTimeSec: 12 * 60,
+  },
+  {
+    id: 'prog_p3_121_20',
+    name: 'P3 Текстиль 121°C / 20 мин',
     setTempC: 121,
     sterilizationTimeSec: 20 * 60,
     preVacuumCount: 4,
     dryingTimeSec: 15 * 60,
   },
   {
-    id: 'prog_134_fast',
-    name: 'Быстрый цикл 134°C',
+    id: 'prog_p4_134_10',
+    name: 'P4 Текстиль 134°C / 10 мин',
     setTempC: 134,
-    sterilizationTimeSec: 3 * 60,
-    preVacuumCount: 3,
-    dryingTimeSec: 5 * 60,
+    sterilizationTimeSec: 10 * 60,
+    preVacuumCount: 4,
+    dryingTimeSec: 15 * 60,
   },
   {
-    id: 'prog_121_delicate',
-    name: 'Деликатная 121°C',
+    id: 'prog_p5_121_liquids',
+    name: 'P5 Жидкости 121°C / 30 мин',
+    setTempC: 121,
+    sterilizationTimeSec: 30 * 60,
+    preVacuumCount: 1,
+    dryingTimeSec: 0,
+  },
+  {
+    id: 'prog_p6_121_delicate',
+    name: 'P6 Деликатные 121°C / 15 мин',
     setTempC: 121,
     sterilizationTimeSec: 15 * 60,
     preVacuumCount: 2,
     dryingTimeSec: 5 * 60,
+  },
+  {
+    id: 'prog_p7_134_rubber',
+    name: 'P7 Резина/силикон 134°C / 10 мин',
+    setTempC: 134,
+    sterilizationTimeSec: 10 * 60,
+    preVacuumCount: 3,
+    dryingTimeSec: 8 * 60,
+  },
+  {
+    id: 'prog_p8_134_prion',
+    name: 'P8 Прион 134°C / 18 мин',
+    setTempC: 134,
+    sterilizationTimeSec: 18 * 60,
+    preVacuumCount: 3,
+    dryingTimeSec: 20 * 60,
   },
   {
     id: 'prog_bowie_dick',
@@ -52,21 +84,37 @@ export const PROGRAMS: ProgramConfig[] = [
 ];
 
 export const PROGRAM_DETAILS: Record<string, { desc: string; phases: string[] }> = {
-  prog_134_5: {
-    desc: 'Упакованные инструменты, полная загрузка',
+  prog_p1_134_5: {
+    desc: 'Упакованные инструменты, стандартная нагрузка',
     phases: ['3x Вакуум', 'Нагрев', 'Стерилизация', 'Сушка'],
   },
-  prog_121_20_textile: {
-    desc: 'Пористые материалы, ткани, халаты',
+  prog_p2_134_7: {
+    desc: 'Инструменты 134°C с увеличенной выдержкой',
+    phases: ['3x Вакуум', 'Нагрев', 'Стерилизация', 'Сушка'],
+  },
+  prog_p3_121_20: {
+    desc: 'Текстиль/пористые материалы 121°C',
     phases: ['4x Вакуум', 'Нагрев', 'Стерилизация', 'Сушка'],
   },
-  prog_134_fast: {
-    desc: 'Неупакованные инструменты (Flash)',
+  prog_p4_134_10: {
+    desc: 'Текстиль 134°C быстрая стерилизация',
+    phases: ['4x Вакуум', 'Нагрев', 'Стерилизация', 'Сушка'],
+  },
+  prog_p5_121_liquids: {
+    desc: 'Жидкости/лабы 121°C, без сушки',
+    phases: ['Удаление воздуха', 'Нагрев', 'Стерилизация', 'Охлаждение'],
+  },
+  prog_p6_121_delicate: {
+    desc: 'Деликатные материалы 121°C',
+    phases: ['2x Вакуум', 'Нагрев', 'Стерилизация', 'Сушка'],
+  },
+  prog_p7_134_rubber: {
+    desc: 'Резина/силикон 134°C',
     phases: ['3x Вакуум', 'Нагрев', 'Стерилизация', 'Сушка'],
   },
-  prog_121_delicate: {
-    desc: 'Резина, пластик, термочувствительные материалы',
-    phases: ['2x Вакуум', 'Нагрев', 'Стерилизация', 'Сушка'],
+  prog_p8_134_prion: {
+    desc: 'Прион/длинная выдержка 134°C',
+    phases: ['3x Вакуум', 'Нагрев', 'Стерилизация', 'Сушка'],
   },
   prog_bowie_dick: {
     desc: 'Тест проникновения пара',

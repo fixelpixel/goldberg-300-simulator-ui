@@ -480,49 +480,53 @@ export default function GoldbergSterilizerUI() {
   const SystemCheckScreen = () => {
     const doorStatusLabel = doorLocked ? 'Заблокирована' : doorOpen ? 'Открыта' : 'Закрыта';
     return (
-      <div className="flex flex-col h-full w-full bg-slate-950 text-slate-50 rounded-2xl p-6 gap-6">
+      <div className="flex flex-col h-full w-full bg-white text-slate-900 rounded-2xl p-6 gap-6 border border-slate-200">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold tracking-wide">Проверка системы</h1>
-          <button onClick={() => setCurrentScreen('SERVICE')} className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-sm">
+          <h1 className="text-2xl font-semibold tracking-wide text-slate-800">Проверка системы</h1>
+          <button onClick={() => setCurrentScreen('SERVICE')} className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-sm text-slate-700 font-bold">
             ← Назад
           </button>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="rounded-2xl bg-slate-900 border border-slate-800 p-4 flex flex-col gap-2">
-            <h2 className="text-sm font-semibold text-slate-200">Камера</h2>
+          <div className="rounded-2xl bg-slate-50 border-2 border-slate-200 p-4 flex flex-col gap-2">
+            <h2 className="text-sm font-semibold text-slate-700">Камера</h2>
             <div className="flex items-center justify-between text-sm">
-              <span className="text-slate-400">Температура</span>
+              <span className="text-slate-500">Температура</span>
               <span className="font-mono text-lg">{(state?.chamber.temperatureC ?? 0).toFixed(1)} °C</span>
             </div>
             <div className="flex items-center justify-between text-sm">
-              <span className="text-slate-400">Давление</span>
+              <span className="text-slate-500">Давление</span>
               <span className="font-mono text-lg">{(state?.chamber.pressureMPa ?? 0).toFixed(3)} МПа</span>
             </div>
           </div>
-          <div className="rounded-2xl bg-slate-900 border border-slate-800 p-4 flex flex-col gap-2">
-            <h2 className="text-sm font-semibold text-slate-200">Парогенератор</h2>
+          <div className="rounded-2xl bg-slate-50 border-2 border-slate-200 p-4 flex flex-col gap-2">
+            <h2 className="text-sm font-semibold text-slate-700">Парогенератор</h2>
             <div className="flex items-center justify-between text-sm">
-              <span className="text-slate-400">Температура</span>
+              <span className="text-slate-500">Температура</span>
               <span className="font-mono text-lg">{(state?.generator.temperatureC ?? 0).toFixed(1)} °C</span>
             </div>
             <div className="flex items-center justify-between text-sm">
-              <span className="text-slate-400">Давление</span>
+              <span className="text-slate-500">Давление</span>
               <span className="font-mono text-lg">{(state?.generator.pressureMPa ?? 0).toFixed(3)} МПа</span>
             </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-slate-500">Уровень воды</span>
+              <span className="font-mono text-lg">{(state?.generator.waterLevelPercent ?? 0).toFixed(0)}%</span>
+            </div>
           </div>
-          <div className="rounded-2xl bg-slate-900 border border-slate-800 p-4 flex flex-col gap-2">
-            <h2 className="text-sm font-semibold text-slate-200">Служебные</h2>
+          <div className="rounded-2xl bg-slate-50 border-2 border-slate-200 p-4 flex flex-col gap-2">
+            <h2 className="text-sm font-semibold text-slate-700">Служебные</h2>
             <div className="flex items-center justify-between text-sm">
-              <span className="text-slate-400">Рубашка (температура)</span>
-              <span className="font-mono text-lg">{(state?.jacket.temperatureC ?? 0).toFixed(1)} °C</span>
+              <span className="text-slate-500">Рубашка (давление)</span>
+              <span className="font-mono text-lg">{(state?.jacket.pressureMPa ?? 0).toFixed(3)} МПа</span>
             </div>
             <div className="flex items-center justify-between text-sm">
-              <span className="text-slate-400">Уровень воды</span>
-              <span className="font-mono text-lg">{(state?.waterLevelPercent ?? 0).toFixed(0)}%</span>
-            </div>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-slate-400">Дверь</span>
+              <span className="text-slate-500">Дверь</span>
               <span className="font-mono text-lg">{doorStatusLabel}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-slate-500">Соединение</span>
+              <span className="font-mono text-lg">{connectionStatus}</span>
             </div>
           </div>
         </div>
@@ -695,13 +699,16 @@ export default function GoldbergSterilizerUI() {
                    <h2 className="text-2xl font-bold text-slate-700 flex items-center gap-2"><History /> Журнал циклов</h2>
                 </div>
                 <div className="flex-1 bg-white rounded-2xl border border-slate-200 overflow-hidden">
-                   <div className="overflow-y-auto h-full">
+                  <div className="overflow-y-auto h-full">
                     <table className="w-full text-left text-sm">
                       <thead className="sticky top-0 bg-slate-50 text-slate-500 uppercase text-xs z-10">
                         <tr>
                           <th className="p-4">ID</th>
                           <th className="p-4">Программа</th>
                           <th className="p-4">Статус</th>
+                          <th className="p-4">Начало</th>
+                          <th className="p-4">Длительность</th>
+                          <th className="p-4">Код ошибки</th>
                           <th className="p-4">Макс T/P</th>
                         </tr>
                       </thead>
@@ -715,6 +722,9 @@ export default function GoldbergSterilizerUI() {
                                 {c.success ? 'Успех' : 'Ошибка'}
                               </span>
                             </td>
+                            <td className="p-4 text-slate-600">{c.startedAt ? new Date(c.startedAt).toLocaleString('ru-RU') : '--'}</td>
+                            <td className="p-4 text-slate-600">{c.durationSec ? secondsToText(c.durationSec) : '--:--'}</td>
+                            <td className="p-4 text-slate-600">{c.primaryErrorCode ?? (c.errors?.[0]?.code ?? '—')}</td>
                             <td className="p-4 text-slate-600">
                               {c.maxTemperatureC?.toFixed?.(1) ?? '--'}° / {c.maxPressureMPa?.toFixed?.(3) ?? '--'} МПа
                             </td>

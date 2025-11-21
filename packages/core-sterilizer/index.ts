@@ -60,7 +60,8 @@ export type ErrorCode =
   | 'VACUUM_FAIL'
   | 'SENSOR_FAILURE'
   | 'DOOR_OPEN'
-  | 'POWER_ERROR';
+  | 'POWER_ERROR'
+  | 'USER_STOP';
 
 export interface ErrorEvent {
   id: string;
@@ -73,9 +74,12 @@ export interface CycleSummary {
   id: string;
   startedAt: number;
   endedAt: number;
+  durationSec: number;
   programId: string;
   programName: string;
+  result: 'success' | 'error' | 'aborted';
   success: boolean;
+  primaryErrorCode?: ErrorCode;
   maxTemperatureC: number;
   maxPressureMPa: number;
   errors: ErrorEvent[];
@@ -215,15 +219,21 @@ let maxPressure = 0;
 let sterilizationTempLowSec = 0;
 let currentVacuumStartPressure = 0;
 
-  function recordCycle(success: boolean) {
+  function recordCycle(result: 'success' | 'error' | 'aborted', primaryErrorCode?: ErrorCode) {
     if (!state.cycle.currentProgram) return;
+    const endedAt = now();
+    const durationSec = Math.max(0, (endedAt - currentCycleStart) / 1000);
+    const success = result === 'success';
     const summary: CycleSummary = {
       id: `c_${state.lastCompletedCycles.length + 1}_${Date.now()}`,
       startedAt: currentCycleStart,
-      endedAt: now(),
+      endedAt,
+      durationSec,
       programId: state.cycle.currentProgram.id,
       programName: state.cycle.currentProgram.name,
+      result,
       success,
+      primaryErrorCode,
       maxTemperatureC: maxTemp,
       maxPressureMPa: maxPressure,
       errors: [...state.errors],
@@ -288,7 +298,7 @@ let currentVacuumStartPressure = 0;
     state.errorHistory = [evt, ...state.errorHistory].slice(0, 100);
     state.cycle.currentPhase = 'ERROR';
     state.cycle.active = false;
-    recordCycle(false);
+    recordCycle('error', code);
   }
 
   async function tick(dtMs: number) {
@@ -422,7 +432,7 @@ let currentVacuumStartPressure = 0;
           if (state.chamber.temperatureC <= 60 || state.cycle.phaseElapsedSec > 40) {
             await setPhase('COMPLETE', 0);
             state.cycle.active = false;
-            recordCycle(true);
+            recordCycle('success');
           }
           break;
         }
@@ -516,23 +526,7 @@ let currentVacuumStartPressure = 0;
       state.cycle.active = false;
       state.cycle.currentPhase = 'DEPRESSURIZE';
       state.cycle.phaseElapsedSec = 0;
-      // TODO: инициировать последовательность безопасного сброса давления
-      const summary: CycleSummary | null = state.cycle.currentProgram
-        ? {
-            id: `c_${state.lastCompletedCycles.length + 1}_${Date.now()}`,
-            startedAt: currentCycleStart,
-            endedAt: now(),
-            programId: state.cycle.currentProgram.id,
-            programName: state.cycle.currentProgram.name,
-            success: false,
-            maxTemperatureC: maxTemp,
-            maxPressureMPa: maxPressure,
-            errors: [...state.errors, { id: 'user_stop', code: 'POWER_ERROR', message: 'Остановлено пользователем', timestamp: now() }],
-          }
-        : null;
-      if (summary) {
-        state.lastCompletedCycles = [summary, ...state.lastCompletedCycles].slice(0, 20);
-      }
+      recordCycle('aborted', 'USER_STOP');
     },
 
     async openDoor() {
