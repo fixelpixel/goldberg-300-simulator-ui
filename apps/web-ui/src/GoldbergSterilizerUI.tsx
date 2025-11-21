@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { 
   Activity, 
   Thermometer, 
@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { useEngineSimulation, PROGRAM_DETAILS, type EngineMode } from './engineClient';
 import { ERROR_MAP } from './errorDictionary';
+import { useAudioNotifications } from './hooks/useAudioNotifications';
 
 // --- Types & Enums ---
 
@@ -285,6 +286,17 @@ export default function GoldbergSterilizerUI() {
   const [showStopModal, setShowStopModal] = useState(false);
   const [showDoorModal, setShowDoorModal] = useState(false);
   const [showStartModal, setShowStartModal] = useState(false);
+  const [phaseToast, setPhaseToast] = useState<string | null>(null);
+  const [doorToast, setDoorToast] = useState<string | null>(null);
+  const { playNotification } = useAudioNotifications();
+  const prevReadyRef = useRef(false);
+  const prevCycleActiveRef = useRef(false);
+  const prevSystemStateRef = useRef<SystemState>('IDLE');
+  const prevHazardIdRef = useRef<string | null>(null);
+  const prevDoorLockedRef = useRef(false);
+  const prevWaterLevelRef = useRef<number>(state?.generator.waterLevelPercent ?? 100);
+  const prevPowerPendingRef = useRef<boolean>(state?.powerFailure?.pending ?? false);
+  const prevVacuumTestIdRef = useRef<string | null>(null);
   
   // DateTime
   const [dateTime, setDateTime] = useState(new Date());
@@ -347,6 +359,87 @@ export default function GoldbergSterilizerUI() {
     const t = setTimeout(() => setDoorToast(null), 2000);
     return () => clearTimeout(t);
   }, [doorOpen, doorLocked]);
+
+  useEffect(() => {
+    if (ready && systemState === 'IDLE' && !prevReadyRef.current) {
+      playNotification('system_ready');
+    }
+    prevReadyRef.current = ready;
+  }, [ready, systemState, playNotification]);
+
+  useEffect(() => {
+    const active = !!state?.cycle.active;
+    if (active && !prevCycleActiveRef.current) {
+      playNotification('cycle_start');
+    }
+    prevCycleActiveRef.current = active;
+  }, [state?.cycle.active, playNotification]);
+
+  useEffect(() => {
+    if (systemState === 'COMPLETED' && prevSystemStateRef.current !== 'COMPLETED') {
+      playNotification('cycle_complete_ok');
+    }
+    prevSystemStateRef.current = systemState;
+  }, [systemState, playNotification]);
+
+  useEffect(() => {
+    if (hazard && prevHazardIdRef.current !== hazard.id) {
+      if (hazard.code === 'OVERPRESSURE' || hazard.code === 'OVERTEMP') {
+        playNotification('overtemp_overpressure_alarm');
+      } else if (hazard.code === 'NO_WATER') {
+        playNotification('water_empty_alarm');
+      } else if (hazard.code === 'VACUUM_FAIL') {
+        playNotification('vacuum_error');
+      } else if (hazard.code === 'SENSOR_FAILURE') {
+        playNotification('sensor_error');
+      } else if (hazard.code === 'DOOR_OPEN') {
+        playNotification('door_fault');
+      } else {
+        playNotification('cycle_failed_error');
+      }
+      prevHazardIdRef.current = hazard.id;
+    }
+    if (!hazard) {
+      prevHazardIdRef.current = null;
+    }
+  }, [hazard, playNotification]);
+
+  useEffect(() => {
+    if (doorLocked && !prevDoorLockedRef.current && (state?.chamber.pressureMPa ?? 0) > 0.05) {
+      playNotification('door_locked_overpressure');
+    }
+    prevDoorLockedRef.current = doorLocked;
+  }, [doorLocked, playNotification, state?.chamber.pressureMPa]);
+
+  useEffect(() => {
+    const level = state?.generator.waterLevelPercent ?? 100;
+    if (level < 5 && prevWaterLevelRef.current >= 5) {
+      playNotification('water_empty_alarm');
+    } else if (level < 15 && prevWaterLevelRef.current >= 15) {
+      playNotification('water_low_warning');
+    }
+    prevWaterLevelRef.current = level;
+  }, [state?.generator.waterLevelPercent, playNotification]);
+
+  useEffect(() => {
+    const pending = !!state?.powerFailure?.pending;
+    if (!pending && prevPowerPendingRef.current) {
+      playNotification('power_restored');
+    }
+    prevPowerPendingRef.current = pending;
+  }, [state?.powerFailure?.pending, playNotification]);
+
+  useEffect(() => {
+    const last = state?.lastVacuumTests?.[0];
+    if (!last) return;
+    if (prevVacuumTestIdRef.current === last.id) return;
+    prevVacuumTestIdRef.current = last.id;
+    if (last.result === 'PASS') {
+      playNotification('vacuum_test_passed');
+    } else if (last.result === 'FAIL') {
+      playNotification('vacuum_test_failed');
+    }
+  }, [state?.lastVacuumTests, playNotification]);
   
   // Timer & Progress
   const phaseTotalSec = state?.cycle.phaseTotalSec || 1;
@@ -390,19 +483,6 @@ export default function GoldbergSterilizerUI() {
   const hazard = state?.errors?.[0];
   const hazardInfo = hazard ? ERROR_MAP[hazard.code] : null;
   const [pendingProgramId, setPendingProgramId] = useState<string | null>(null);
-  const [phaseToast, setPhaseToast] = useState<string | null>(null);
-  const [doorToast, setDoorToast] = useState<string | null>(null);
-
-  const errorHistory = useMemo(
-    () =>
-      (state?.errors ?? []).map((err, idx) => ({
-        id: `${err.code}-${idx}`,
-        timestamp: dateTime.toLocaleString('ru-RU'),
-        code: err.code,
-        message: err.message,
-      })),
-    [state?.errors, dateTime]
-  );
 
   // Actions
   const startCycle = (programId: string) => {
@@ -428,6 +508,18 @@ export default function GoldbergSterilizerUI() {
   };
 
   const confirmStart = () => {
+    if (doorOpen) {
+      playNotification('door_open_on_start');
+      setShowStartModal(false);
+      setPendingProgramId(null);
+      return;
+    }
+    if (state?.errors?.length) {
+      playNotification('cycle_failed_error');
+      setShowStartModal(false);
+      setPendingProgramId(null);
+      return;
+    }
     const id = pendingProgramId || currentProgram.id;
     controls.startCycle(id);
     setShowStartModal(false);
