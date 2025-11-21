@@ -208,18 +208,6 @@ export default function GoldbergSterilizerUI() {
             active={systemState === 'RUNNING'}
           />
         </div>
-        <div className="flex gap-4">
-          <BigMetric
-            label="Парогенератор T"
-            value={formatNum(state?.generator.temperatureC, 1, true)}
-            unit="°C"
-          />
-          <BigMetric
-            label="Парогенератор P"
-            value={formatNum(state?.generator.pressureMPa, 3)}
-            unit="МПа"
-          />
-        </div>
 
         <div className="bg-slate-900 text-white rounded-3xl p-6 shadow-lg flex flex-col gap-4">
           <div className="flex items-center justify-between">
@@ -322,14 +310,24 @@ export default function GoldbergSterilizerUI() {
               <FileText />
             </button>
             <button
-              onClick={() => setCurrentScreen('SYSTEM_CHECK')}
+              onClick={() => setCurrentScreen('VACUUM_TEST')}
               className="p-4 rounded-2xl border-2 border-slate-200 bg-white shadow-sm flex items-center justify-between hover:border-cyan-400"
             >
               <div>
-                <div className="text-xs uppercase font-semibold text-slate-500">Системная проверка</div>
-                <div className="font-bold text-lg text-slate-800">Датчики и приводы</div>
+                <div className="text-xs uppercase font-semibold text-slate-500">Тесты</div>
+                <div className="font-bold text-lg text-slate-800">Вакуум / Bowie-Dick</div>
               </div>
-              <Activity />
+              <AlertOctagon />
+            </button>
+            <button
+              onClick={() => setCurrentScreen('SERVICE')}
+              className="p-4 rounded-2xl border-2 border-slate-200 bg-white shadow-sm flex items-center justify-between hover:border-cyan-400"
+            >
+              <div>
+                <div className="text-xs uppercase font-semibold text-slate-500">Сервис</div>
+                <div className="font-bold text-lg text-slate-800">Калибровки и статус</div>
+              </div>
+              <Wrench />
             </button>
           </div>
         </div>
@@ -479,12 +477,38 @@ export default function GoldbergSterilizerUI() {
     </div>
   );
 
+  const PlaceholderScreen = ({ title }: { title: string }) => (
+    <div className="p-6">
+      <div className="flex items-center gap-3 mb-4">
+        <button
+          onClick={() => setCurrentScreen('MAIN')}
+          className="p-2 rounded-full bg-slate-100 hover:bg-slate-200"
+        >
+          <ArrowLeft />
+        </button>
+        <div>
+          <div className="text-xs uppercase text-slate-500 font-semibold">{title}</div>
+          <div className="text-2xl font-bold text-slate-800">В разработке</div>
+        </div>
+      </div>
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+        <p className="text-slate-600">Этот экран будет дополнен калибровками/проверками позже.</p>
+      </div>
+    </div>
+  );
+
   const renderScreen = () => {
     switch (currentScreen) {
       case 'PROGRAMS':
         return <ScreenPrograms />;
       case 'REPORTS':
         return <ScreenReports />;
+      case 'SYSTEM_CHECK':
+        return <PlaceholderScreen title="Системная проверка" />;
+      case 'VACUUM_TEST':
+        return <PlaceholderScreen title="Тесты" />;
+      case 'SERVICE':
+        return <PlaceholderScreen title="Сервис" />;
       default:
         return <ScreenMain />;
     }
