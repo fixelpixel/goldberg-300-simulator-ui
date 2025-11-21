@@ -192,7 +192,7 @@ export default function GoldbergSterilizerUI() {
 
   const ScreenMain = () => (
     <div className="p-6 grid grid-cols-12 gap-6">
-      <div className="col-span-8 flex flex-col gap-6">
+      <div className="col-span-5 flex flex-col gap-4">
         <div className="flex gap-4">
           <BigMetric
             label="Камера T"
@@ -208,7 +208,58 @@ export default function GoldbergSterilizerUI() {
             active={systemState === 'RUNNING'}
           />
         </div>
+        <div className="flex gap-4">
+          <BigMetric
+            label="Парогенератор T"
+            value={formatNum(state?.generator.temperatureC, 1, true)}
+            unit="°C"
+          />
+          <BigMetric
+            label="Парогенератор P"
+            value={formatNum(state?.generator.pressureMPa, 3)}
+            unit="МПа"
+          />
+        </div>
+      </div>
 
+      <div className="col-span-7 flex flex-col gap-4">
+        <div className="grid grid-cols-2 gap-3">
+          <QuickCard
+            title={currentProgram?.name ?? 'Программа не выбрана'}
+            subtitle="Быстрый старт"
+            icon={Zap}
+            onClick={handleStart}
+            variant="primary"
+          />
+          <QuickCard title="Быстрая 134°C" subtitle="Flash режим" icon={Zap} onClick={handleStart} />
+          <QuickCard
+            title="Выбор программы"
+            subtitle="Каталог режимов"
+            icon={Tags}
+            onClick={() => setCurrentScreen('PROGRAMS')}
+          />
+          <QuickCard
+            title="Журналы"
+            subtitle="История циклов"
+            icon={History}
+            onClick={() => setCurrentScreen('REPORTS')}
+          />
+          <QuickCard
+            title="Тесты"
+            subtitle="Вакуум / Bowie-Dick"
+            icon={AlertOctagon}
+            onClick={() => setCurrentScreen('VACUUM_TEST')}
+          />
+          <QuickCard
+            title="Сервис"
+            subtitle="Калибровки и статус"
+            icon={Wrench}
+            onClick={() => setCurrentScreen('SERVICE')}
+          />
+        </div>
+      </div>
+
+      <div className="col-span-12">
         <div className="bg-slate-900 text-white rounded-3xl p-6 shadow-lg flex flex-col gap-4">
           <div className="flex items-center justify-between">
             <div>
@@ -283,51 +334,6 @@ export default function GoldbergSterilizerUI() {
               <span className="text-[10px] text-slate-500">
                 {doorLocked ? 'Заблокирована' : doorOpen ? 'Открыта' : 'Закрыта'}
               </span>
-            </button>
-          </div>
-        </div>
-
-        <div className="col-span-4 flex flex-col gap-4">
-          <div className="grid grid-cols-1 gap-3">
-            <button
-              onClick={() => setCurrentScreen('PROGRAMS')}
-              className="p-4 rounded-2xl border-2 border-slate-200 bg-white shadow-sm flex items-center justify-between hover:border-cyan-400"
-            >
-              <div>
-                <div className="text-xs uppercase font-semibold text-slate-500">Программы</div>
-                <div className="font-bold text-lg text-slate-800">Выбор и редактирование</div>
-              </div>
-              <Tags />
-            </button>
-            <button
-              onClick={() => setCurrentScreen('REPORTS')}
-              className="p-4 rounded-2xl border-2 border-slate-200 bg-white shadow-sm flex items-center justify-between hover:border-cyan-400"
-            >
-              <div>
-                <div className="text-xs uppercase font-semibold text-slate-500">Журналы</div>
-                <div className="font-bold text-lg text-slate-800">Циклы и ошибки</div>
-              </div>
-              <FileText />
-            </button>
-            <button
-              onClick={() => setCurrentScreen('VACUUM_TEST')}
-              className="p-4 rounded-2xl border-2 border-slate-200 bg-white shadow-sm flex items-center justify-between hover:border-cyan-400"
-            >
-              <div>
-                <div className="text-xs uppercase font-semibold text-slate-500">Тесты</div>
-                <div className="font-bold text-lg text-slate-800">Вакуум / Bowie-Dick</div>
-              </div>
-              <AlertOctagon />
-            </button>
-            <button
-              onClick={() => setCurrentScreen('SERVICE')}
-              className="p-4 rounded-2xl border-2 border-slate-200 bg-white shadow-sm flex items-center justify-between hover:border-cyan-400"
-            >
-              <div>
-                <div className="text-xs uppercase font-semibold text-slate-500">Сервис</div>
-                <div className="font-bold text-lg text-slate-800">Калибровки и статус</div>
-              </div>
-              <Wrench />
             </button>
           </div>
         </div>
