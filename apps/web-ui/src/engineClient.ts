@@ -201,7 +201,7 @@ export function useEngineSimulation(
             if (snapshot) {
               const nowMs = Date.now();
               const sig = makeSignature(snapshot);
-              if (sig !== lastStateStrRef.current && nowMs - lastSentAtRef.current > 1500) {
+              if (sig !== lastStateStrRef.current && nowMs - lastSentAtRef.current > 1000) {
                 lastStateStrRef.current = sig;
                 lastSentAtRef.current = nowMs;
                 setState(snapshot);

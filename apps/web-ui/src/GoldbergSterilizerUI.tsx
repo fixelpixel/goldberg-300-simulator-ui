@@ -113,7 +113,7 @@ const DialPadModal = ({
 // --- Helper Functions ---
 
 const formatNum = (v?: number, digits = 1, pad = false) =>
-  v === undefined ? '--' : pad ? v.toFixed(digits).padStart(5, '0') : v.toFixed(digits);
+  v === undefined ? '--' : pad ? v.toFixed(digits) : v.toFixed(digits);
 
 const secondsToText = (sec?: number) => {
   if (!sec || !Number.isFinite(sec)) return '--:--';
@@ -326,10 +326,27 @@ export default function GoldbergSterilizerUI() {
   const theme = getTheme(systemState);
 
   // Simulation Data Mapping
-  const camTemp = formatNum(state?.chamber.temperatureC, 1, true);
-  const camPress = formatNum(state?.chamber.pressureMPa, 3);
+  const camTemp = formatNum(state?.chamber.temperatureC, 1, false);
+  const camPress = state ? (state.chamber.pressureMPa * 10000).toFixed(0) : '--'; // мбар ≈ MPa * 10000
   const doorLocked = state?.door.locked || (state?.chamber.pressureMPa ?? 0) > 0.11;
   const doorOpen = !!state?.door.open;
+  
+  // Phase change toast
+  useEffect(() => {
+    if (!state?.cycle.currentPhase) return;
+    setPhaseToast(`Фаза: ${phaseNameMap[state.cycle.currentPhase] || state.cycle.currentPhase}`);
+    const t = setTimeout(() => setPhaseToast(null), 2000);
+    return () => clearTimeout(t);
+  }, [state?.cycle.currentPhase]);
+
+  // Door change toast
+  useEffect(() => {
+    if (doorOpen) setDoorToast('Дверь открыта');
+    else if (doorLocked) setDoorToast('Дверь заблокирована');
+    else setDoorToast('Дверь закрыта');
+    const t = setTimeout(() => setDoorToast(null), 2000);
+    return () => clearTimeout(t);
+  }, [doorOpen, doorLocked]);
   
   // Timer & Progress
   const phaseTotalSec = state?.cycle.phaseTotalSec || 1;
@@ -371,8 +388,10 @@ export default function GoldbergSterilizerUI() {
   const doorState = getDoorStatus();
 
   const hazard = state?.errors?.[0];
-   const hazardInfo = hazard ? ERROR_MAP[hazard.code] : null;
-   const [pendingProgramId, setPendingProgramId] = useState<string | null>(null);
+  const hazardInfo = hazard ? ERROR_MAP[hazard.code] : null;
+  const [pendingProgramId, setPendingProgramId] = useState<string | null>(null);
+  const [phaseToast, setPhaseToast] = useState<string | null>(null);
+  const [doorToast, setDoorToast] = useState<string | null>(null);
 
   const errorHistory = useMemo(
     () =>
@@ -419,38 +438,47 @@ export default function GoldbergSterilizerUI() {
   // --- Sub-Components ---
 
   const DashboardRunning = () => {
+    const phaseSteps = ['PREHEAT', 'PREVACUUM', 'HEAT_UP', 'STERILIZATION', 'DRYING', 'DEPRESSURIZE', 'COOLING', 'COMPLETE'] as const;
+    const stepIndex = phaseSteps.indexOf(currentPhaseName as any);
     return (
       <div className="h-full grid grid-cols-12 gap-6">
         <div className="col-span-4 flex flex-col gap-6">
            <BigMetric label="Температура" value={camTemp} unit="°C" active={true} />
-           <BigMetric label="Давление" value={camPress} unit="МПа" active={true} alert={(state?.chamber.pressureMPa ?? 0) > 0.240} />
+           <BigMetric label="Давление" value={camPress} unit="мбар" active={true} alert={(state?.chamber.pressureMPa ?? 0) > 0.240} />
         </div>
 
         <div className="col-span-8 bg-slate-900 rounded-2xl p-8 flex flex-col justify-between relative overflow-hidden shadow-inner border border-slate-700">
            <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/10 blur-3xl rounded-full pointer-events-none"></div>
            <div className="text-center py-4 z-10">
-              <div className="text-slate-400 font-bold uppercase tracking-widest mb-2 animate-pulse">Осталось времени (фаза)</div>
-              <div className="text-[8rem] leading-none font-mono font-bold text-white tracking-tighter tabular-nums">
-                {secondsToText(timeLeft)}
-              </div>
-              <div className="mt-3 text-slate-200 text-xl font-semibold tracking-tight">
-                До окончания цикла: <span className="font-black text-white">{secondsToText(totalRemaining)}</span>
-              </div>
+              {currentPhaseName === 'PREHEAT' ? (
+                <div className="flex flex-col items-center gap-3 justify-center py-8">
+                  <div className="text-[8rem] leading-none font-black text-amber-400 animate-pulse uppercase tracking-[0.25em]">ПРОГРЕВ</div>
+                  <div className="text-slate-300 text-lg font-semibold">Ожидайте выхода на режим</div>
+                </div>
+              ) : (
+                <>
+                  <div className="text-slate-400 font-bold uppercase tracking-widest mb-2 animate-pulse">Осталось времени (фаза)</div>
+                  <div className="text-[8rem] leading-none font-mono font-bold text-white tracking-tighter tabular-nums">
+                    {secondsToText(timeLeft)}
+                  </div>
+                  <div className="mt-3 text-slate-200 text-xl font-semibold tracking-tight">
+                    До окончания цикла: <span className="font-black text-white">{secondsToText(totalRemaining)}</span>
+                  </div>
+                </>
+              )}
            </div>
 
            <div className="z-10">
-              <div className="flex justify-between text-slate-400 text-sm font-bold uppercase mb-4 px-2">
-                {/* Simplified phase display since we don't have full phase list in state strictly ordered without logic */}
-                <span>Старт</span>
-                <span>Процесс</span>
-                <span className="text-emerald-400">{currentPhaseLabel}</span>
-                <span>Завершение</span>
+              <div className="flex justify-between text-slate-400 text-xs font-bold uppercase mb-3 px-2">
+                {phaseSteps.map((p) => (
+                  <span key={p} className={`${p === currentPhaseName ? 'text-emerald-300' : ''}`}>{phaseNameMap[p] || p}</span>
+                ))}
               </div>
-              <div className="h-4 bg-slate-700 rounded-full overflow-hidden">
-                <div className="h-full bg-emerald-500 transition-all duration-1000 ease-linear" style={{ width: `${progress}%` }}></div>
+              <div className="h-3 bg-slate-700 rounded-full overflow-hidden">
+                <div className="h-full bg-emerald-500 transition-all duration-1000 ease-linear" style={{ width: `${((stepIndex + 1) / phaseSteps.length) * 100}%` }}></div>
               </div>
               <div className="mt-4 text-center">
-                <span className="inline-block px-4 py-2 rounded bg-emerald-900/50 border border-emerald-500/30 text-emerald-400 font-bold uppercase tracking-wider">
+                <span className="inline-block px-4 py-2 rounded bg-emerald-900/50 border border-emerald-500/30 text-emerald-300 font-bold uppercase tracking-wider">
                    Текущая фаза: {currentPhaseLabel}
                 </span>
               </div>
@@ -882,6 +910,19 @@ export default function GoldbergSterilizerUI() {
   return (
     <div className="flex flex-col h-screen bg-slate-100 font-sans select-none overflow-hidden">
       
+      {/* Phase toast */}
+      {phaseToast && (
+        <div className="fixed top-4 right-4 z-[50] animate-in slide-in-from-top fade-in duration-300">
+          <div className="px-4 py-2 bg-slate-900 text-white rounded-xl shadow-lg text-sm font-bold">{phaseToast}</div>
+        </div>
+      )}
+      {/* Door toast */}
+      {doorToast && (
+        <div className="fixed top-16 right-4 z-[50] animate-in slide-in-from-top fade-in duration-300">
+          <div className="px-4 py-2 bg-slate-800 text-white rounded-xl shadow-lg text-sm font-bold">{doorToast}</div>
+        </div>
+      )}
+
       {/* TOP BAR */}
       <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 shrink-0 z-30">
          <div className="flex items-center gap-4">
@@ -1177,11 +1218,12 @@ export default function GoldbergSterilizerUI() {
                 {hazardInfo?.icon === 'vacuum' && <AlertTriangle size={32} />}
                 {hazardInfo?.icon === 'door' && <DoorOpen size={32} />}
                 {hazardInfo?.icon === 'sensor' && <ShieldAlert size={32} />}
+                {hazardInfo?.icon === 'power' && <Power size={32} />}
                 {!hazardInfo?.icon && <AlertOctagon size={32} />}
                 <div>
                   <div className="text-xs uppercase tracking-widest font-bold opacity-80">Авария</div>
                   <div className="text-2xl font-black flex items-center gap-2">
-                    {hazard.code} — {hazardInfo?.title || hazard.message}
+                    {hazardInfo?.title || hazard.message}
                   </div>
                 </div>
               </div>

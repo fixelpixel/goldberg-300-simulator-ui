@@ -479,7 +479,7 @@ let pausedCycle: CycleRuntime | null = null;
 
     // 4. проверки ошибок (если не в ERROR)
     if (state.cycle.currentPhase !== 'ERROR') {
-      if (state.chamber.pressureMPa > 0.32) {
+      if (state.chamber.pressureMPa > 0.35) {
         pushError('OVERPRESSURE', 'Избыточное давление в камере');
       }
       if (state.generator.waterLevelPercent < 5) {
