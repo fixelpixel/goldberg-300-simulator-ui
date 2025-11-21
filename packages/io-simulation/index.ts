@@ -3,8 +3,8 @@
 
 import type { SterilizerIO } from '../core-sterilizer';
 
-const HEATER_POWER_W = 6000;
-const WATER_CAPACITY_KG = 8; // эквивалентно ~8 литрам
+const HEATER_POWER_W = 15000;
+const WATER_CAPACITY_KG = 6; // эквивалентно ~6 литрам
 const SPECIFIC_HEAT_WATER = 4186; // Дж/(кг·К)
 const LATENT_HEAT = 2257000; // Дж/кг
 
@@ -140,6 +140,12 @@ export class SimulationIO implements SterilizerIO {
     // Сброс
     if (p.steamExhaustValveOpen) {
       p.chamberPressureMPa -= 0.12 * dtSec;
+    }
+
+    const targetPressure = this.saturatedSteamPressure(p.chamberTemperatureC);
+    if (!p.vacuumPumpOn && !p.steamExhaustValveOpen) {
+      const fillRate = p.steamInletValveOpen ? 0.6 : 0.15;
+      p.chamberPressureMPa += (targetPressure - p.chamberPressureMPa) * fillRate * dtSec;
     }
 
     // Охлаждение камеры
