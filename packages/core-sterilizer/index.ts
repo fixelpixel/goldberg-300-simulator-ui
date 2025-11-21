@@ -50,6 +50,12 @@ export interface ProgramOverride {
   dryingTimeSec?: number;
 }
 
+export interface PhaseTargets {
+  chamberTempC: number;
+  generatorTempC: number;
+  chamberPressureMPa: number;
+}
+
 export interface CycleRuntime {
   active: boolean;
   currentPhase: Phase;
@@ -150,6 +156,74 @@ const PHASE_DEFAULTS: Record<Phase, number> = {
   ERROR: 0,
 };
 
+const pressureFromTemp = (tempC: number) => {
+  if (tempC <= 100) return 0.1;
+  const delta = tempC - 100;
+  return Math.min(0.35, 0.1 + delta * 0.0059);
+};
+
+const getPhaseTargetsFor = (program: ProgramConfig | null, phase: Phase): PhaseTargets => {
+  const sterilTemp = program?.setTempC ?? 134;
+  const sterilPressure = pressureFromTemp(sterilTemp);
+  switch (phase) {
+    case 'PREHEAT':
+      return {
+        chamberTempC: Math.min(sterilTemp - 30, 90),
+        generatorTempC: sterilTemp - 10,
+        chamberPressureMPa: 0.08,
+      };
+    case 'PREVACUUM':
+      return {
+        chamberTempC: 70,
+        generatorTempC: Math.max(sterilTemp - 15, 100),
+        chamberPressureMPa: 0.008,
+      };
+    case 'HEAT_UP':
+      return {
+        chamberTempC: sterilTemp - 5,
+        generatorTempC: sterilTemp + 5,
+        chamberPressureMPa: sterilPressure * 0.8,
+      };
+    case 'STERILIZATION':
+      return {
+        chamberTempC: sterilTemp,
+        generatorTempC: sterilTemp + 2,
+        chamberPressureMPa: sterilPressure,
+      };
+    case 'DRYING':
+      return {
+        chamberTempC: Math.max(sterilTemp - 20, 90),
+        generatorTempC: Math.max(sterilTemp - 10, 100),
+        chamberPressureMPa: 0.05,
+      };
+    case 'DEPRESSURIZE':
+      return {
+        chamberTempC: Math.max(sterilTemp - 30, 80),
+        generatorTempC: Math.max(sterilTemp - 15, 90),
+        chamberPressureMPa: 0.015,
+      };
+    case 'COOLING':
+      return {
+        chamberTempC: 60,
+        generatorTempC: 70,
+        chamberPressureMPa: 0.01,
+      };
+    case 'COMPLETE':
+    case 'ERROR':
+      return {
+        chamberTempC: 40,
+        generatorTempC: 45,
+        chamberPressureMPa: 0.005,
+      };
+    default:
+      return {
+        chamberTempC: 30,
+        generatorTempC: 35,
+        chamberPressureMPa: 0.005,
+      };
+  }
+};
+
 // Интерфейс ввода/вывода - абстрагирует датчики и исполнительные механизмы.
 export interface SterilizerIO {
   readSensors(): Promise<{
@@ -170,6 +244,7 @@ export interface SterilizerIO {
     vacuumPumpOn?: boolean;
     waterPumpOn?: boolean;
     doorLockOn?: boolean;
+    phaseTargets?: PhaseTargets;
   }): Promise<void>;
 
   setManualActuators?(cmd: {
@@ -265,7 +340,13 @@ let maxTemp = 0;
 let maxPressure = 0;
   let sterilizationTempLowSec = 0;
 let currentVacuumStartPressure = 0;
-let pausedCycle: CycleRuntime | null = null;
+  let pausedCycle: CycleRuntime | null = null;
+  const applyActuators = async (cmd: Parameters<SterilizerIO['writeActuators']>[0]) => {
+    await io.writeActuators({
+      ...cmd,
+      phaseTargets: getPhaseTargetsFor(state.cycle.currentProgram, state.cycle.currentPhase),
+    });
+  };
 
   function recordCycle(result: 'success' | 'error' | 'aborted', primaryErrorCode?: ErrorCode) {
     if (!state.cycle.currentProgram) return;
@@ -396,13 +477,13 @@ let pausedCycle: CycleRuntime | null = null;
           result: result.result,
           leakRateMPaPerMin: leakRate,
         };
-        await io.writeActuators({ vacuumPumpOn: false, steamExhaustValveOpen: false, steamInletValveOpen: false });
+        await applyActuators({ vacuumPumpOn: false, steamExhaustValveOpen: false, steamInletValveOpen: false });
       } else if (state.vacuumTest.phase === 'STABILIZE') {
         // держим вакуум
-        await io.writeActuators({ vacuumPumpOn: true, steamExhaustValveOpen: true, steamInletValveOpen: false, heaterOn: false });
+        await applyActuators({ vacuumPumpOn: true, steamExhaustValveOpen: true, steamInletValveOpen: false, heaterOn: false });
       } else if (state.vacuumTest.phase === 'TEST') {
         // во время теста держим закрытым
-        await io.writeActuators({ vacuumPumpOn: false, steamExhaustValveOpen: false, steamInletValveOpen: false, heaterOn: false });
+        await applyActuators({ vacuumPumpOn: false, steamExhaustValveOpen: false, steamInletValveOpen: false, heaterOn: false });
       }
     }
 
@@ -418,7 +499,7 @@ let pausedCycle: CycleRuntime | null = null;
     if (state.cycle.active && program) {
       switch (state.cycle.currentPhase) {
         case 'PREHEAT': {
-          await io.writeActuators({ heaterOn: true, steamInletValveOpen: false, vacuumPumpOn: false, steamExhaustValveOpen: false });
+          await applyActuators({ heaterOn: true, steamInletValveOpen: false, vacuumPumpOn: false, steamExhaustValveOpen: false });
           if (state.generator.temperatureC >= Math.max(100, program.setTempC - 5) || state.cycle.phaseElapsedSec > PHASE_DEFAULTS.PREHEAT) {
             completedPrevacuums = 0;
             await setPhase('PREVACUUM', PHASE_DEFAULTS.PREVACUUM);
@@ -426,7 +507,7 @@ let pausedCycle: CycleRuntime | null = null;
           break;
         }
         case 'PREVACUUM': {
-          await io.writeActuators({ vacuumPumpOn: true, steamExhaustValveOpen: true, steamInletValveOpen: false, heaterOn: false });
+          await applyActuators({ vacuumPumpOn: true, steamExhaustValveOpen: true, steamInletValveOpen: false, heaterOn: false });
           if (state.cycle.phaseElapsedSec > state.cycle.phaseTotalSec) {
             if (completedPrevacuums >= program.preVacuumCount) {
               await setPhase('HEAT_UP', PHASE_DEFAULTS.HEAT_UP);
@@ -437,7 +518,7 @@ let pausedCycle: CycleRuntime | null = null;
           break;
         }
         case 'HEAT_UP': {
-          await io.writeActuators({ steamInletValveOpen: true, heaterOn: true, vacuumPumpOn: false, steamExhaustValveOpen: false });
+          await applyActuators({ steamInletValveOpen: true, heaterOn: true, vacuumPumpOn: false, steamExhaustValveOpen: false });
           const reachedTemp = state.chamber.temperatureC >= program.setTempC - 2;
           if (reachedTemp || state.cycle.phaseElapsedSec > state.cycle.phaseTotalSec) {
             await setPhase('STERILIZATION', program.sterilizationTimeSec);
@@ -445,7 +526,7 @@ let pausedCycle: CycleRuntime | null = null;
           break;
         }
         case 'STERILIZATION': {
-          await io.writeActuators({
+          await applyActuators({
             steamInletValveOpen: state.chamber.temperatureC < program.setTempC,
             heaterOn: true,
             vacuumPumpOn: false,
@@ -463,21 +544,21 @@ let pausedCycle: CycleRuntime | null = null;
           break;
         }
         case 'DRYING': {
-          await io.writeActuators({ vacuumPumpOn: true, steamExhaustValveOpen: true, heaterOn: false, steamInletValveOpen: false });
+          await applyActuators({ vacuumPumpOn: true, steamExhaustValveOpen: true, heaterOn: false, steamInletValveOpen: false });
           if (state.cycle.phaseElapsedSec >= (program.dryingTimeSec || 30)) {
             await setPhase('DEPRESSURIZE', PHASE_DEFAULTS.DEPRESSURIZE);
           }
           break;
         }
         case 'DEPRESSURIZE': {
-          await io.writeActuators({ steamExhaustValveOpen: true, vacuumPumpOn: false, steamInletValveOpen: false, heaterOn: false });
+          await applyActuators({ steamExhaustValveOpen: true, vacuumPumpOn: false, steamInletValveOpen: false, heaterOn: false });
           if (state.chamber.pressureMPa <= 0.02 || state.cycle.phaseElapsedSec > 20) {
             await setPhase('COOLING', 20);
           }
           break;
         }
         case 'COOLING': {
-          await io.writeActuators({ heaterOn: false, steamInletValveOpen: false, steamExhaustValveOpen: false, vacuumPumpOn: false });
+          await applyActuators({ heaterOn: false, steamInletValveOpen: false, steamExhaustValveOpen: false, vacuumPumpOn: false });
           if (state.chamber.temperatureC <= 60 || state.cycle.phaseElapsedSec > 40) {
             await setPhase('COMPLETE', 0);
             state.cycle.active = false;
@@ -585,11 +666,11 @@ let pausedCycle: CycleRuntime | null = null;
 
     async openDoor() {
       // В реальной реализации должны быть проверки на давление/температуру
-      await io.writeActuators({ doorLockOn: false });
+      await applyActuators({ doorLockOn: false });
     },
 
     async closeDoor() {
-      await io.writeActuators({ doorLockOn: true });
+      await applyActuators({ doorLockOn: true });
     },
 
     async startVacuumTest(config: { stabilizationTimeSec: number; testTimeSec: number }) {
@@ -603,7 +684,7 @@ let pausedCycle: CycleRuntime | null = null;
         startedAt: now(),
         basePressureMPa: null,
       };
-      await io.writeActuators({ vacuumPumpOn: true, steamExhaustValveOpen: true, steamInletValveOpen: false, heaterOn: false });
+      await applyActuators({ vacuumPumpOn: true, steamExhaustValveOpen: true, steamInletValveOpen: false, heaterOn: false });
     },
 
     setProgramOverride(programId: string, override: ProgramOverride) {

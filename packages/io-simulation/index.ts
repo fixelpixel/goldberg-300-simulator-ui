@@ -1,12 +1,7 @@
 // io-simulation/index.ts
 // Реализация SterilizerIO для режима симуляции (без реального оборудования).
 
-import type { SterilizerIO } from '../core-sterilizer';
-
-const HEATER_POWER_W = 15000;
-const WATER_CAPACITY_KG = 6; // эквивалентно ~6 литрам
-const SPECIFIC_HEAT_WATER = 4186; // Дж/(кг·К)
-const LATENT_HEAT = 2257000; // Дж/кг
+import type { PhaseTargets, SterilizerIO } from '../core-sterilizer';
 
 export interface InternalPhysicalState {
   chamberPressureMPa: number;
@@ -35,6 +30,26 @@ export class SimulationIO implements SterilizerIO {
     steamExhaustValveOpen?: boolean;
     vacuumPumpOn?: boolean;
   } = {};
+  private baseTargets: PhaseTargets = {
+    chamberTempC: 25,
+    generatorTempC: 30,
+    chamberPressureMPa: 0.005,
+  };
+
+  private getActiveTargets(): PhaseTargets {
+    let target = { ...this.baseTargets };
+    if (this.manualOverrides.heaterOn) {
+      target.generatorTempC = Math.max(target.generatorTempC, 150);
+    }
+    if (this.manualOverrides.steamInletValveOpen) {
+      target.chamberPressureMPa = Math.max(target.chamberPressureMPa, 0.28);
+      target.chamberTempC = Math.max(target.chamberTempC, target.generatorTempC - 5);
+    }
+    if (this.manualOverrides.vacuumPumpOn) {
+      target.chamberPressureMPa = Math.min(target.chamberPressureMPa, 0.005);
+    }
+    return target;
+  }
 
   constructor(initial?: Partial<InternalPhysicalState>) {
     this.physical = {
@@ -68,102 +83,34 @@ export class SimulationIO implements SterilizerIO {
   public stepPhysics(dtSec: number) {
     const p = this.physical;
     this.lastDt = dtSec;
+    const targets = this.getActiveTargets();
+    const approach = (current: number, target: number, rate: number) => {
+      const diff = target - current;
+      if (Math.abs(diff) <= rate * dtSec) return target;
+      return current + Math.sign(diff) * rate * dtSec;
+    };
 
-    // Простейшая модель нагрева парогенератора
-    if (p.heaterOn && p.waterLevelPercent > 0) {
-      let energyJ = HEATER_POWER_W * dtSec;
-      const currentMassKg = Math.max(0.1, (p.waterLevelPercent / 100) * WATER_CAPACITY_KG);
+    const heaterActive = p.heaterOn || this.manualOverrides.heaterOn;
+    const generatorRate = heaterActive ? 6 : 2;
+    p.generatorTemperatureC = approach(p.generatorTemperatureC, targets.generatorTempC, generatorRate);
 
-      if (p.generatorTemperatureC < 100 && energyJ > 0) {
-        const neededToBoil = Math.max(0, 100 - p.generatorTemperatureC) * currentMassKg * SPECIFIC_HEAT_WATER;
-        const used = Math.min(neededToBoil, energyJ);
-        p.generatorTemperatureC += used / (currentMassKg * SPECIFIC_HEAT_WATER);
-        energyJ -= used;
-      }
+    const chamberHeatRate = targets.chamberTempC > p.chamberTemperatureC ? 3 : 1.5;
+    p.chamberTemperatureC = approach(p.chamberTemperatureC, targets.chamberTempC, chamberHeatRate);
 
-      if (energyJ > 0 && p.waterLevelPercent > 0) {
-        const steamMass = energyJ / LATENT_HEAT;
-        const percentLoss = (steamMass / WATER_CAPACITY_KG) * 100;
-        p.waterLevelPercent = Math.max(0, p.waterLevelPercent - percentLoss);
-        // лёгкий перегрев пара
-        p.generatorTemperatureC = Math.min(160, p.generatorTemperatureC + steamMass * 10);
-      }
+    const pressureRate = 0.06;
+    p.chamberPressureMPa = approach(p.chamberPressureMPa, targets.chamberPressureMPa, pressureRate);
+
+    p.generatorTemperatureC = Math.max(20, Math.min(180, p.generatorTemperatureC));
+    p.chamberTemperatureC = Math.max(20, Math.min(170, p.chamberTemperatureC));
+    p.chamberPressureMPa = Math.max(0.0005, Math.min(0.35, p.chamberPressureMPa));
+
+    if (heaterActive) {
+      p.waterLevelPercent = Math.max(0, p.waterLevelPercent - 0.02 * dtSec);
     } else {
-      // медленное охлаждение к окружающей температуре
-      const cool = (p.generatorTemperatureC - this.ambientTemp) * 0.01 * dtSec;
-      p.generatorTemperatureC -= cool;
+      p.generatorTemperatureC = approach(p.generatorTemperatureC, this.ambientTemp, 0.5);
     }
-
-    if (p.generatorTemperatureC < 20) p.generatorTemperatureC = 20;
-    if (p.generatorTemperatureC > 160) p.generatorTemperatureC = 160;
-
-    // Условная зависимость давления пара от температуры
-    p.generatorPressureMPa = this.saturatedSteamPressure(p.generatorTemperatureC);
-
-    // Заполнение камеры паром
-    const valveArea = 0.001; // м² ~ 10 см²
-    const dischargeCoeff = 0.7;
-    const steamDensity = 0.6; // кг/м³ при 0.3 МПа
-    const chamberVolume = 0.05; // м³ (50 литров)
-
-    const hasSteamInChamber = p.steamInletValveOpen || p.chamberPressureMPa > 0.02;
-    if (p.steamInletValveOpen) {
-      const pressureDiff = Math.max(0, p.generatorPressureMPa - p.chamberPressureMPa) * 1e6; // Па
-      if (pressureDiff > 0) {
-        const flowRate = valveArea * dischargeCoeff * Math.sqrt((2 * pressureDiff) / steamDensity); // м³/с
-        const massFlow = flowRate * steamDensity; // кг/с
-        const deltaPressure = (massFlow * dtSec) / chamberVolume; // кг/м³ ≈ Па
-        p.chamberPressureMPa += (deltaPressure / 1e6);
-      }
-    }
-
-    const chamberMassKg = 20; // масса стенок+загрузки
-    const chamberHeatCapacity = 500; // Дж/(кг·К)
-    const heatTransferCoeff = 500; // Вт/(м²·К)
-    const chamberArea = 1.5; // м²
-
-    if (hasSteamInChamber) {
-      const tempDiff = Math.max(0, p.generatorTemperatureC - p.chamberTemperatureC);
-      const heatFlux = heatTransferCoeff * chamberArea * tempDiff; // Вт
-      const tempRise = (heatFlux * dtSec) / (chamberMassKg * chamberHeatCapacity);
-      p.chamberTemperatureC += tempRise;
-    }
-
-    // Вакуум
-    if (p.vacuumPumpOn) {
-      const pumpSpeed = 0.02; // м³/с
-      const chamberVolume = 0.05; // м³
-      const pumpingRate = pumpSpeed / chamberVolume;
-      p.chamberPressureMPa *= Math.exp(-pumpingRate * dtSec);
-    }
-
-    // Сброс
-    if (p.steamExhaustValveOpen) {
-      p.chamberPressureMPa -= 0.12 * dtSec;
-    }
-
-    const targetPressure = this.saturatedSteamPressure(p.chamberTemperatureC);
-    if (!p.vacuumPumpOn && !p.steamExhaustValveOpen) {
-      const fillRate = p.steamInletValveOpen ? 0.6 : 0.15;
-      p.chamberPressureMPa += (targetPressure - p.chamberPressureMPa) * fillRate * dtSec;
-    }
-
-    // Охлаждение камеры
-    const ambientTransfer = 50; // Вт/(м²·К)
-    const ambientArea = 1.5;
-    const ambientHeatFlux = ambientTransfer * ambientArea * (p.chamberTemperatureC - this.ambientTemp);
-    const ambientCool = (ambientHeatFlux * dtSec) / (chamberMassKg * chamberHeatCapacity);
-    p.chamberTemperatureC -= ambientCool;
-
-    if (p.chamberTemperatureC < 20) p.chamberTemperatureC = 20;
-    if (p.chamberPressureMPa < 0.0001) p.chamberPressureMPa = 0.0001;
-    if (p.chamberPressureMPa > 0.35) p.chamberPressureMPa = 0.35;
 
     if (p.waterLevelPercent < 0) p.waterLevelPercent = 0;
-
-    // Лёгкая утечка к атмосфере/окружающей среде
-    p.chamberPressureMPa += (0 - p.chamberPressureMPa) * 0.01 * dtSec;
-    p.chamberTemperatureC += (this.ambientTemp - p.chamberTemperatureC) * 0.01 * dtSec;
   }
 
   async readSensors() {
@@ -186,6 +133,7 @@ export class SimulationIO implements SterilizerIO {
     vacuumPumpOn?: boolean;
     waterPumpOn?: boolean;
     doorLockOn?: boolean;
+    phaseTargets?: PhaseTargets;
   }) {
     if (typeof cmd.heaterOn === 'boolean') this.physical.heaterOn = cmd.heaterOn;
     if (typeof cmd.steamInletValveOpen === 'boolean') this.physical.steamInletValveOpen = cmd.steamInletValveOpen;
@@ -202,6 +150,10 @@ export class SimulationIO implements SterilizerIO {
     if (this.manualOverrides.steamInletValveOpen !== undefined) this.physical.steamInletValveOpen = this.manualOverrides.steamInletValveOpen;
     if (this.manualOverrides.steamExhaustValveOpen !== undefined) this.physical.steamExhaustValveOpen = this.manualOverrides.steamExhaustValveOpen;
     if (this.manualOverrides.vacuumPumpOn !== undefined) this.physical.vacuumPumpOn = this.manualOverrides.vacuumPumpOn;
+
+    if (cmd.phaseTargets) {
+      this.baseTargets = cmd.phaseTargets;
+    }
   }
 
   setManualActuators(cmd: {
