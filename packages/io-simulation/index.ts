@@ -3,6 +3,11 @@
 
 import type { SterilizerIO } from '../core-sterilizer';
 
+const HEATER_POWER_W = 6000;
+const WATER_CAPACITY_KG = 8; // эквивалентно ~8 литрам
+const SPECIFIC_HEAT_WATER = 4186; // Дж/(кг·К)
+const LATENT_HEAT = 2257000; // Дж/кг
+
 export interface InternalPhysicalState {
   chamberPressureMPa: number;
   chamberTemperatureC: number;
@@ -60,8 +65,23 @@ export class SimulationIO implements SterilizerIO {
 
     // Простейшая модель нагрева парогенератора
     if (p.heaterOn && p.waterLevelPercent > 0) {
-      p.generatorTemperatureC += 2.0 * dtSec;
-      p.waterLevelPercent -= 0.03 * dtSec; // расход воды при нагреве
+      let energyJ = HEATER_POWER_W * dtSec;
+      const currentMassKg = Math.max(0.1, (p.waterLevelPercent / 100) * WATER_CAPACITY_KG);
+
+      if (p.generatorTemperatureC < 100 && energyJ > 0) {
+        const neededToBoil = Math.max(0, 100 - p.generatorTemperatureC) * currentMassKg * SPECIFIC_HEAT_WATER;
+        const used = Math.min(neededToBoil, energyJ);
+        p.generatorTemperatureC += used / (currentMassKg * SPECIFIC_HEAT_WATER);
+        energyJ -= used;
+      }
+
+      if (energyJ > 0 && p.waterLevelPercent > 0) {
+        const steamMass = energyJ / LATENT_HEAT;
+        const percentLoss = (steamMass / WATER_CAPACITY_KG) * 100;
+        p.waterLevelPercent = Math.max(0, p.waterLevelPercent - percentLoss);
+        // лёгкий перегрев пара
+        p.generatorTemperatureC = Math.min(160, p.generatorTemperatureC + steamMass * 10);
+      }
     } else {
       // медленное охлаждение к окружающей температуре
       const cool = (p.generatorTemperatureC - this.ambientTemp) * 0.01 * dtSec;
@@ -75,17 +95,39 @@ export class SimulationIO implements SterilizerIO {
     p.generatorPressureMPa = this.saturatedSteamPressure(p.generatorTemperatureC);
 
     // Заполнение камеры паром
+    const valveArea = 0.001; // м² ~ 10 см²
+    const dischargeCoeff = 0.7;
+    const steamDensity = 0.6; // кг/м³ при 0.3 МПа
+    const chamberVolume = 0.05; // м³ (50 литров)
+
     if (p.steamInletValveOpen) {
-      const delta = (p.generatorPressureMPa - p.chamberPressureMPa) * 0.55 * dtSec;
-      p.chamberPressureMPa += delta;
-      // нагрев камеры стремится к температуре генератора
-      const target = Math.max(p.chamberTemperatureC, p.generatorTemperatureC - 5);
-      p.chamberTemperatureC += (target - p.chamberTemperatureC) * 0.04 * dtSec;
+      const pressureDiff = Math.max(0, p.generatorPressureMPa - p.chamberPressureMPa) * 1e6; // Па
+      if (pressureDiff > 0) {
+        const flowRate = valveArea * dischargeCoeff * Math.sqrt((2 * pressureDiff) / steamDensity); // м³/с
+        const massFlow = flowRate * steamDensity; // кг/с
+        const deltaPressure = (massFlow * dtSec) / chamberVolume; // кг/м³ ≈ Па
+        p.chamberPressureMPa += (deltaPressure / 1e6);
+      }
+    }
+
+    const chamberMassKg = 20; // масса стенок+загрузки
+    const chamberHeatCapacity = 500; // Дж/(кг·К)
+    const heatTransferCoeff = 500; // Вт/(м²·К)
+    const chamberArea = 1.5; // м²
+
+    if (p.steamInletValveOpen) {
+      const tempDiff = Math.max(0, p.generatorTemperatureC - p.chamberTemperatureC);
+      const heatFlux = heatTransferCoeff * chamberArea * tempDiff; // Вт
+      const tempRise = (heatFlux * dtSec) / (chamberMassKg * chamberHeatCapacity);
+      p.chamberTemperatureC += tempRise;
     }
 
     // Вакуум
     if (p.vacuumPumpOn) {
-      p.chamberPressureMPa -= 0.08 * dtSec;
+      const pumpSpeed = 0.02; // м³/с
+      const chamberVolume = 0.05; // м³
+      const pumpingRate = pumpSpeed / chamberVolume;
+      p.chamberPressureMPa *= Math.exp(-pumpingRate * dtSec);
     }
 
     // Сброс
@@ -94,10 +136,14 @@ export class SimulationIO implements SterilizerIO {
     }
 
     // Охлаждение камеры
-    p.chamberTemperatureC -= 0.45 * dtSec;
+    const ambientTransfer = 50; // Вт/(м²·К)
+    const ambientArea = 1.5;
+    const ambientHeatFlux = ambientTransfer * ambientArea * (p.chamberTemperatureC - this.ambientTemp);
+    const ambientCool = (ambientHeatFlux * dtSec) / (chamberMassKg * chamberHeatCapacity);
+    p.chamberTemperatureC -= ambientCool;
 
     if (p.chamberTemperatureC < 20) p.chamberTemperatureC = 20;
-    if (p.chamberPressureMPa < -0.1) p.chamberPressureMPa = -0.1;
+    if (p.chamberPressureMPa < 0.0001) p.chamberPressureMPa = 0.0001;
     if (p.chamberPressureMPa > 0.35) p.chamberPressureMPa = 0.35;
 
     if (p.waterLevelPercent < 0) p.waterLevelPercent = 0;
