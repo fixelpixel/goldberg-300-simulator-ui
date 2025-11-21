@@ -16,6 +16,8 @@ import {
   Tags,
   Thermometer,
   Zap,
+  FileText,
+  Wrench,
 } from 'lucide-react';
 import { useEngineSimulation, PROGRAM_DETAILS, type EngineMode } from './engineClient';
 import { ERROR_MAP } from './errorDictionary';
