@@ -100,6 +100,7 @@ export class SimulationIO implements SterilizerIO {
     const steamDensity = 0.6; // кг/м³ при 0.3 МПа
     const chamberVolume = 0.05; // м³ (50 литров)
 
+    const hasSteamInChamber = p.steamInletValveOpen || p.chamberPressureMPa > 0.02;
     if (p.steamInletValveOpen) {
       const pressureDiff = Math.max(0, p.generatorPressureMPa - p.chamberPressureMPa) * 1e6; // Па
       if (pressureDiff > 0) {
@@ -115,7 +116,7 @@ export class SimulationIO implements SterilizerIO {
     const heatTransferCoeff = 500; // Вт/(м²·К)
     const chamberArea = 1.5; // м²
 
-    if (p.steamInletValveOpen) {
+    if (hasSteamInChamber) {
       const tempDiff = Math.max(0, p.generatorTemperatureC - p.chamberTemperatureC);
       const heatFlux = heatTransferCoeff * chamberArea * tempDiff; // Вт
       const tempRise = (heatFlux * dtSec) / (chamberMassKg * chamberHeatCapacity);
