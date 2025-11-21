@@ -135,33 +135,6 @@ function BigMetric({
   );
 }
 
-const QuickAction = ({
-  title,
-  subtitle,
-  icon: Icon,
-  onClick,
-}: {
-  title: string;
-  subtitle: string;
-  icon: any;
-  onClick: () => void;
-}) => (
-  <button
-    onClick={onClick}
-    className="text-left p-5 rounded-2xl border-2 border-slate-200 shadow-sm transition-all hover:shadow-lg active:scale-95 flex items-start gap-4 h-full w-full group bg-white"
-  >
-    <div className="p-3 rounded-xl bg-slate-100 text-slate-600 group-hover:bg-cyan-50 group-hover:text-cyan-600 transition-colors">
-      <Icon size={28} />
-    </div>
-    <div>
-      <div className="font-bold text-lg text-slate-800 group-hover:text-cyan-700 leading-tight">
-        {title}
-      </div>
-      <div className="text-sm text-slate-500 font-medium mt-1">{subtitle}</div>
-    </div>
-  </button>
-);
-
 export default function GoldbergSterilizerUI() {
   const [engineMode] = useState<EngineMode>('local');
   const { state, programs, controls, ready, connectionStatus } = useEngineSimulation(engineMode);
@@ -217,6 +190,306 @@ export default function GoldbergSterilizerUI() {
   const hazard = state?.errors?.[0];
   const hazardInfo = hazard ? ERROR_MAP[hazard.code] : undefined;
 
+  const ScreenMain = () => (
+    <div className="p-6 grid grid-cols-12 gap-6">
+      <div className="col-span-8 flex flex-col gap-6">
+        <div className="flex gap-4">
+          <BigMetric
+            label="Камера T"
+            value={formatNum(state?.chamber.temperatureC, 1, true)}
+            unit="°C"
+            active={systemState === 'RUNNING'}
+            alert={systemState === 'ERROR'}
+          />
+          <BigMetric
+            label="Камера P"
+            value={formatNum(state?.chamber.pressureMPa, 3)}
+            unit="МПа"
+            active={systemState === 'RUNNING'}
+          />
+        </div>
+        <div className="flex gap-4">
+          <BigMetric
+            label="Парогенератор T"
+            value={formatNum(state?.generator.temperatureC, 1, true)}
+            unit="°C"
+          />
+          <BigMetric
+            label="Парогенератор P"
+            value={formatNum(state?.generator.pressureMPa, 3)}
+            unit="МПа"
+          />
+        </div>
+
+        <div className="bg-slate-900 text-white rounded-3xl p-6 shadow-lg flex flex-col gap-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm uppercase tracking-widest text-white/60">Текущая программа</div>
+              <div className="text-2xl font-bold truncate max-w-xl">{currentProgram?.name}</div>
+              <div className="text-sm text-white/70 max-w-xl">{programMeta.desc}</div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setCurrentScreen('PROGRAMS')}
+                className="px-4 py-2 bg-white text-slate-900 rounded-lg font-semibold flex items-center gap-2"
+              >
+                <Tags size={16} /> Программы
+              </button>
+              <button
+                onClick={() => setCurrentScreen('REPORTS')}
+                className="px-4 py-2 bg-white/10 border border-white/20 rounded-lg font-semibold text-white flex items-center gap-2"
+              >
+                <History size={16} /> Журнал
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-4">
+            <div className="bg-white/5 rounded-2xl p-4">
+              <div className="text-xs uppercase text-white/60 font-semibold mb-1">Осталось времени</div>
+              <div className="text-4xl font-mono font-bold">{secondsToText(timeLeftPhase)}</div>
+              <div className="text-sm text-white/60">Фаза: {phaseName}</div>
+              <div className="mt-3 h-2 bg-white/10 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-emerald-400 transition-all"
+                  style={{ width: `${Math.round(phaseProgress * 100)}%` }}
+                />
+              </div>
+            </div>
+            <div className="bg-white/5 rounded-2xl p-4">
+              <div className="text-xs uppercase text-white/60 font-semibold mb-1">Давление камеры</div>
+              <div className="text-3xl font-mono font-bold">{formatNum(state?.chamber.pressureMPa, 3)}</div>
+              <div className="text-sm text-white/60">Безопасно до 0.11 МПа</div>
+            </div>
+            <div className="bg-white/5 rounded-2xl p-4">
+              <div className="text-xs uppercase text-white/60 font-semibold mb-1">Уровень воды</div>
+              <div className="text-3xl font-mono font-bold">
+                {state?.generator.waterLevelPercent ?? '--'}%
+              </div>
+              <div className="text-sm text-white/60">Заправить при &lt; 20%</div>
+            </div>
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              onClick={handleStart}
+              disabled={!ready || doorOpen || !!state?.errors?.length || systemState === 'RUNNING'}
+              className="flex-1 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-3 text-lg shadow-lg"
+            >
+              <Play size={24} /> Старт
+            </button>
+            <button
+              onClick={handleStop}
+              disabled={!ready || !state?.cycle.active}
+              className="flex-1 bg-slate-800 hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-3 text-lg shadow-lg"
+            >
+              <Square size={24} /> Стоп
+            </button>
+            <button
+              onClick={() => setShowDoorModal(true)}
+              disabled={!ready || doorLocked}
+              className="w-40 bg-white text-slate-900 border border-slate-200 rounded-2xl font-semibold flex flex-col items-center justify-center gap-1 py-2 hover:shadow-sm disabled:opacity-50"
+            >
+              <DoorOpen size={22} />
+              <span className="text-xs uppercase tracking-wider">Дверь</span>
+              <span className="text-[10px] text-slate-500">
+                {doorLocked ? 'Заблокирована' : doorOpen ? 'Открыта' : 'Закрыта'}
+              </span>
+            </button>
+          </div>
+        </div>
+
+        <div className="col-span-4 flex flex-col gap-4">
+          <div className="grid grid-cols-1 gap-3">
+            <button
+              onClick={() => setCurrentScreen('PROGRAMS')}
+              className="p-4 rounded-2xl border-2 border-slate-200 bg-white shadow-sm flex items-center justify-between hover:border-cyan-400"
+            >
+              <div>
+                <div className="text-xs uppercase font-semibold text-slate-500">Программы</div>
+                <div className="font-bold text-lg text-slate-800">Выбор и редактирование</div>
+              </div>
+              <Tags />
+            </button>
+            <button
+              onClick={() => setCurrentScreen('REPORTS')}
+              className="p-4 rounded-2xl border-2 border-slate-200 bg-white shadow-sm flex items-center justify-between hover:border-cyan-400"
+            >
+              <div>
+                <div className="text-xs uppercase font-semibold text-slate-500">Журналы</div>
+                <div className="font-bold text-lg text-slate-800">Циклы и ошибки</div>
+              </div>
+              <FileText />
+            </button>
+            <button
+              onClick={() => setCurrentScreen('SYSTEM_CHECK')}
+              className="p-4 rounded-2xl border-2 border-slate-200 bg-white shadow-sm flex items-center justify-between hover:border-cyan-400"
+            >
+              <div>
+                <div className="text-xs uppercase font-semibold text-slate-500">Системная проверка</div>
+                <div className="font-bold text-lg text-slate-800">Датчики и приводы</div>
+              </div>
+              <Activity />
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const ScreenPrograms = () => (
+    <div className="p-6">
+      <div className="flex items-center gap-3 mb-4">
+        <button
+          onClick={() => setCurrentScreen('MAIN')}
+          className="p-2 rounded-full bg-slate-100 hover:bg-slate-200"
+        >
+          <ArrowLeft />
+        </button>
+        <div>
+          <div className="text-xs uppercase text-slate-500 font-semibold">Программы</div>
+          <div className="text-2xl font-bold text-slate-800">Выбор программы</div>
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-4">
+        <div className="col-span-2 bg-white rounded-2xl border border-slate-200 p-4">
+          <div className="space-y-2 max-h-[520px] overflow-y-auto pr-2">
+            {programs.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => setSelectedProgramId(p.id)}
+                className={`w-full text-left p-3 rounded-xl border transition ${
+                  p.id === currentProgram?.id
+                    ? 'border-cyan-500 bg-cyan-50 ring-1 ring-cyan-500'
+                    : 'border-slate-200 hover:border-cyan-400'
+                }`}
+              >
+                <div className="flex justify-between items-center">
+                  <div className="font-bold text-slate-800">{p.name}</div>
+                  <div className="text-sm font-mono text-slate-500">{p.setTempC ?? ''}°C</div>
+                </div>
+                <div className="text-sm text-slate-500">{PROGRAM_DETAILS[p.id]?.desc ?? ''}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="bg-white rounded-2xl border border-slate-200 p-4">
+          <div className="text-xs uppercase text-slate-500 font-bold mb-2">Фазы программы</div>
+          <div className="flex flex-col gap-2">
+            {programMeta.phases?.map((ph, idx) => (
+              <div
+                key={`${ph}-${idx}`}
+                className={`flex items-center gap-3 p-3 rounded-xl border ${
+                  idx === 0 ? 'border-cyan-400 bg-cyan-50' : 'border-slate-200'
+                }`}
+              >
+                <div
+                  className={`w-8 h-8 rounded-full flex items-center justify-center font-bold ${
+                    idx === 0 ? 'bg-cyan-500 text-white' : 'bg-slate-100 text-slate-600'
+                  }`}
+                >
+                  {idx + 1}
+                </div>
+                <div className="font-semibold text-slate-700">{ph}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const ScreenReports = () => (
+    <div className="p-6">
+      <div className="flex items-center gap-3 mb-4">
+        <button
+          onClick={() => setCurrentScreen('MAIN')}
+          className="p-2 rounded-full bg-slate-100 hover:bg-slate-200"
+        >
+          <ArrowLeft />
+        </button>
+        <div>
+          <div className="text-xs uppercase text-slate-500 font-semibold">Журналы</div>
+          <div className="text-2xl font-bold text-slate-800">Циклы и ошибки</div>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="bg-white rounded-2xl border border-slate-200 p-4">
+          <div className="text-sm font-bold text-slate-700 mb-3">Журнал циклов</div>
+          <div className="max-h-[420px] overflow-y-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="sticky top-0 bg-slate-50 text-slate-500 uppercase text-xs">
+                <tr>
+                  <th className="p-2">№</th>
+                  <th className="p-2">Программа</th>
+                  <th className="p-2">Статус</th>
+                  <th className="p-2">T/P макс</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {(state?.lastCompletedCycles ?? []).map((c) => (
+                  <tr key={c.id}>
+                    <td className="p-2 font-mono text-slate-600">{c.id}</td>
+                    <td className="p-2 text-slate-700">{c.programName}</td>
+                    <td className="p-2">
+                      <span
+                        className={`px-2 py-1 rounded text-xs font-bold uppercase ${
+                          c.success ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
+                        }`}
+                      >
+                        {c.success ? 'Успех' : 'Ошибка'}
+                      </span>
+                    </td>
+                    <td className="p-2 text-slate-600">
+                      {c.maxTemperatureC?.toFixed?.(1) ?? '--'}° / {c.maxPressureMPa?.toFixed?.(3) ?? '--'} МПа
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-slate-200 p-4">
+          <div className="text-sm font-bold text-slate-700 mb-3">Журнал ошибок</div>
+          <div className="max-h-[420px] overflow-y-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="sticky top-0 bg-slate-50 text-slate-500 uppercase text-xs">
+                <tr>
+                  <th className="p-2">Время</th>
+                  <th className="p-2">Код</th>
+                  <th className="p-2">Описание</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {(state?.errors ?? []).map((e) => (
+                  <tr key={e.id}>
+                    <td className="p-2 font-mono text-slate-600">
+                      {new Date(e.timestamp).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                    </td>
+                    <td className="p-2 font-mono text-red-600 font-bold">{e.code}</td>
+                    <td className="p-2 text-slate-700">{e.message}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderScreen = () => {
+    switch (currentScreen) {
+      case 'PROGRAMS':
+        return <ScreenPrograms />;
+      case 'REPORTS':
+        return <ScreenReports />;
+      default:
+        return <ScreenMain />;
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-100 text-slate-800">
       {/* Status Banner */}
@@ -256,204 +529,7 @@ export default function GoldbergSterilizerUI() {
         </div>
       </div>
 
-      {/* Main grid */}
-      <div className="p-6 grid grid-cols-12 gap-6">
-        <div className="col-span-8 flex flex-col gap-6">
-          {/* Metrics */}
-          <div className="flex gap-4">
-            <BigMetric
-              label="Камера T"
-              value={formatNum(state?.chamber.temperatureC, 1, true)}
-              unit="°C"
-              active={systemState === 'RUNNING'}
-              alert={systemState === 'ERROR'}
-            />
-            <BigMetric
-              label="Камера P"
-              value={formatNum(state?.chamber.pressureMPa, 3)}
-              unit="МПа"
-              active={systemState === 'RUNNING'}
-            />
-          </div>
-          <div className="flex gap-4">
-            <BigMetric
-              label="Парогенератор T"
-              value={formatNum(state?.generator.temperatureC, 1, true)}
-              unit="°C"
-            />
-            <BigMetric
-              label="Парогенератор P"
-              value={formatNum(state?.generator.pressureMPa, 3)}
-              unit="МПа"
-            />
-          </div>
-
-          {/* Running Dashboard */}
-          <div className="bg-slate-900 text-white rounded-3xl p-6 shadow-lg flex flex-col gap-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm uppercase tracking-widest text-white/60">Текущая программа</div>
-                <div className="text-2xl font-bold">{currentProgram?.name}</div>
-                <div className="text-sm text-white/70">{programMeta.desc}</div>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setCurrentScreen('PROGRAMS')}
-                  className="px-4 py-2 bg-white text-slate-900 rounded-lg font-semibold flex items-center gap-2"
-                >
-                  <Tags size={16} /> Программы
-                </button>
-                <button
-                  onClick={() => setCurrentScreen('REPORTS')}
-                  className="px-4 py-2 bg-white/10 border border-white/20 rounded-lg font-semibold text-white flex items-center gap-2"
-                >
-                  <History size={16} /> Журнал
-                </button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-4">
-              <div className="bg-white/5 rounded-2xl p-4">
-                <div className="text-xs uppercase text-white/60 font-semibold mb-1">Осталось времени</div>
-                <div className="text-4xl font-mono font-bold">{secondsToText(timeLeftPhase)}</div>
-                <div className="text-sm text-white/60">Фаза: {phaseName}</div>
-                <div className="mt-3 h-2 bg-white/10 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-emerald-400 transition-all"
-                    style={{ width: `${Math.round(phaseProgress * 100)}%` }}
-                  />
-                </div>
-              </div>
-              <div className="bg-white/5 rounded-2xl p-4">
-                <div className="text-xs uppercase text-white/60 font-semibold mb-1">Давление камеры</div>
-                <div className="text-3xl font-mono font-bold">{formatNum(state?.chamber.pressureMPa, 3)}</div>
-                <div className="text-sm text-white/60">Безопасно до 0.11 МПа</div>
-              </div>
-              <div className="bg-white/5 rounded-2xl p-4">
-                <div className="text-xs uppercase text-white/60 font-semibold mb-1">Уровень воды</div>
-                <div className="text-3xl font-mono font-bold">
-                  {state?.generator.waterLevelPercent ?? '--'}%
-                </div>
-                <div className="text-sm text-white/60">Заправить при &lt; 20%</div>
-              </div>
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                onClick={handleStart}
-                disabled={!ready || doorOpen || !!state?.errors?.length || systemState === 'RUNNING'}
-                className="flex-1 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-3 text-lg shadow-lg"
-              >
-                <Play size={24} /> Старт
-              </button>
-              <button
-                onClick={handleStop}
-                disabled={!ready || !state?.cycle.active}
-                className="flex-1 bg-slate-800 hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-3 text-lg shadow-lg"
-              >
-                <Square size={24} /> Стоп
-              </button>
-              <button
-                onClick={() => setShowDoorModal(true)}
-                disabled={!ready || doorLocked}
-                className="w-40 bg-white text-slate-900 border border-slate-200 rounded-2xl font-semibold flex flex-col items-center justify-center gap-1 py-2 hover:shadow-sm disabled:opacity-50"
-              >
-                <DoorOpen size={22} />
-                <span className="text-xs uppercase tracking-wider">Дверь</span>
-                <span className="text-[10px] text-slate-500">
-                  {doorLocked ? 'Заблокирована' : doorOpen ? 'Открыта' : 'Закрыта'}
-                </span>
-              </button>
-            </div>
-          </div>
-
-          {/* Quick actions */}
-          <div className="grid grid-cols-3 gap-4">
-            <QuickAction title="Быстрый старт" subtitle="Последняя программа" icon={Zap} onClick={handleStart} />
-            <QuickAction
-              title="Системная проверка"
-              subtitle="Датчики и приводы"
-              icon={Activity}
-              onClick={() => setCurrentScreen('SYSTEM_CHECK')}
-            />
-            <QuickAction
-              title="Тесты"
-              subtitle="Вакуум / Bowie-Dick"
-              icon={AlertOctagon}
-              onClick={() => setCurrentScreen('VACUUM_TEST')}
-            />
-            <QuickAction
-              title="Программы"
-              subtitle="Выбор и редактирование"
-              icon={Tags}
-              onClick={() => setCurrentScreen('PROGRAMS')}
-            />
-            <QuickAction
-              title="Отчёты"
-              subtitle="Журнал циклов/ошибок"
-              icon={FileText}
-              onClick={() => setCurrentScreen('REPORTS')}
-            />
-            <QuickAction
-              title="Сервис"
-              subtitle="Калибровка и статус"
-              icon={Wrench}
-              onClick={() => setCurrentScreen('SERVICE')}
-            />
-          </div>
-        </div>
-
-        {/* Right panel */}
-        <div className="col-span-4 flex flex-col gap-4">
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
-            <div className="text-xs uppercase text-slate-500 font-bold mb-2">Программы</div>
-            <div className="space-y-2 max-h-[260px] overflow-y-auto pr-2">
-              {programs.map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => setSelectedProgramId(p.id)}
-                  className={`w-full text-left p-3 rounded-xl border transition ${
-                    p.id === currentProgram?.id
-                      ? 'border-cyan-500 bg-cyan-50 ring-1 ring-cyan-500'
-                      : 'border-slate-200 hover:border-cyan-400'
-                  }`}
-                >
-                  <div className="flex justify-between items-center">
-                    <div className="font-bold text-slate-800">{p.name}</div>
-                    <div className="text-sm font-mono text-slate-500">{p.setTempC ?? ''}°C</div>
-                  </div>
-                  <div className="text-sm text-slate-500">
-                    {PROGRAM_DETAILS[p.id]?.desc ?? programMeta.desc}
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
-            <div className="text-xs uppercase text-slate-500 font-bold mb-2">Фазы программы</div>
-            <div className="flex flex-col gap-2">
-              {programMeta.phases?.map((ph, idx) => (
-                <div
-                  key={`${ph}-${idx}`}
-                  className={`flex items-center gap-3 p-3 rounded-xl border ${
-                    idx === 0 ? 'border-cyan-400 bg-cyan-50' : 'border-slate-200'
-                  }`}
-                >
-                  <div
-                    className={`w-8 h-8 rounded-full flex items-center justify-center font-bold ${
-                      idx === 0 ? 'bg-cyan-500 text-white' : 'bg-slate-100 text-slate-600'
-                    }`}
-                  >
-                    {idx + 1}
-                  </div>
-                  <div className="font-semibold text-slate-700">{ph}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
+      {renderScreen()}
 
       {/* Stop modal */}
       {showStopModal && (
