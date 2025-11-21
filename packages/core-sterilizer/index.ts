@@ -81,6 +81,26 @@ export interface CycleSummary {
   errors: ErrorEvent[];
 }
 
+export interface VacuumTestResult {
+  id: string;
+  startedAt: number;
+  endedAt: number;
+  result: 'PASS' | 'FAIL';
+  leakRateMPaPerMin: number;
+}
+
+export interface VacuumTestState {
+  active: boolean;
+  phase: 'IDLE' | 'STABILIZE' | 'TEST';
+  elapsedSec: number;
+  stabilizationTimeSec: number;
+  testTimeSec: number;
+  startedAt: number | null;
+  basePressureMPa: number | null;
+  result?: 'PASS' | 'FAIL';
+  leakRateMPaPerMin?: number;
+}
+
 export interface SterilizerState {
   chamber: ChamberState;
   generator: GeneratorState;
@@ -89,7 +109,10 @@ export interface SterilizerState {
   cycle: CycleRuntime;
   errors: ErrorEvent[];
   warnings: ErrorEvent[];
+  errorHistory: ErrorEvent[];
   lastCompletedCycles: CycleSummary[];
+  vacuumTest: VacuumTestState;
+  lastVacuumTests: VacuumTestResult[];
 }
 
 const PHASE_DEFAULTS: Record<Phase, number> = {
@@ -169,7 +192,18 @@ export function createSterilizerEngine(options: EngineOptions): SterilizerEngine
     },
     errors: [],
     warnings: [],
+    errorHistory: [],
     lastCompletedCycles: [],
+    vacuumTest: {
+      active: false,
+      phase: 'IDLE',
+      elapsedSec: 0,
+      stabilizationTimeSec: 300,
+      testTimeSec: 300,
+      startedAt: null,
+      basePressureMPa: null,
+    },
+    lastVacuumTests: [],
   };
 
 let lastTickMs = now();
@@ -179,6 +213,7 @@ let currentCycleStart = 0;
 let maxTemp = 0;
 let maxPressure = 0;
 let sterilizationTempLowSec = 0;
+let currentVacuumStartPressure = 0;
 
   function recordCycle(success: boolean) {
     if (!state.cycle.currentProgram) return;
@@ -250,6 +285,7 @@ let sterilizationTempLowSec = 0;
       timestamp: now(),
     };
     state.errors = [...state.errors, evt];
+    state.errorHistory = [evt, ...state.errorHistory].slice(0, 100);
     state.cycle.currentPhase = 'ERROR';
     state.cycle.active = false;
     recordCycle(false);
@@ -268,6 +304,47 @@ let sterilizationTempLowSec = 0;
       state.cycle.totalElapsedSecSec += dtSec;
       maxTemp = Math.max(maxTemp, state.chamber.temperatureC);
       maxPressure = Math.max(maxPressure, state.chamber.pressureMPa);
+    }
+
+    // 2a. Вакуум-тест (упрощённая логика)
+    if (state.vacuumTest.active && !state.cycle.active) {
+      state.vacuumTest.elapsedSec += dtSec;
+      if (state.vacuumTest.phase === 'STABILIZE' && state.vacuumTest.elapsedSec >= state.vacuumTest.stabilizationTimeSec) {
+        state.vacuumTest.phase = 'TEST';
+        state.vacuumTest.elapsedSec = 0;
+        currentVacuumStartPressure = state.chamber.pressureMPa;
+        state.vacuumTest.basePressureMPa = currentVacuumStartPressure;
+      } else if (state.vacuumTest.phase === 'TEST' && state.vacuumTest.elapsedSec >= state.vacuumTest.testTimeSec) {
+        const durationMin = state.vacuumTest.testTimeSec / 60;
+        const leakRate = durationMin > 0 ? Math.max(0, (state.chamber.pressureMPa - currentVacuumStartPressure) / durationMin) : 0;
+        const pass = leakRate <= 0.005; // простое допущение
+        const result: VacuumTestResult = {
+          id: `vt_${Date.now()}`,
+          startedAt: state.vacuumTest.startedAt || now(),
+          endedAt: now(),
+          result: pass ? 'PASS' : 'FAIL',
+          leakRateMPaPerMin: leakRate,
+        };
+        state.lastVacuumTests = [result, ...state.lastVacuumTests].slice(0, 20);
+        state.vacuumTest = {
+          active: false,
+          phase: 'IDLE',
+          elapsedSec: 0,
+          stabilizationTimeSec: state.vacuumTest.stabilizationTimeSec,
+          testTimeSec: state.vacuumTest.testTimeSec,
+          startedAt: null,
+          basePressureMPa: null,
+          result: result.result,
+          leakRateMPaPerMin: leakRate,
+        };
+        await io.writeActuators({ vacuumPumpOn: false, steamExhaustValveOpen: false, steamInletValveOpen: false });
+      } else if (state.vacuumTest.phase === 'STABILIZE') {
+        // держим вакуум
+        await io.writeActuators({ vacuumPumpOn: true, steamExhaustValveOpen: true, steamInletValveOpen: false, heaterOn: false });
+      } else if (state.vacuumTest.phase === 'TEST') {
+        // во время теста держим закрытым
+        await io.writeActuators({ vacuumPumpOn: false, steamExhaustValveOpen: false, steamInletValveOpen: false, heaterOn: false });
+      }
     }
 
     // 3. Упрощённая машина состояний для демо
@@ -468,12 +545,22 @@ let sterilizationTempLowSec = 0;
     },
 
     async startVacuumTest(config: { stabilizationTimeSec: number; testTimeSec: number }) {
-      // TODO: реализовать отдельную ветку state-machine для вакуум-теста
-      console.log('Vacuum test requested', config);
+      if (state.cycle.active) return;
+      state.vacuumTest = {
+        active: true,
+        phase: 'STABILIZE',
+        elapsedSec: 0,
+        stabilizationTimeSec: config.stabilizationTimeSec,
+        testTimeSec: config.testTimeSec,
+        startedAt: now(),
+        basePressureMPa: null,
+      };
+      await io.writeActuators({ vacuumPumpOn: true, steamExhaustValveOpen: true, steamInletValveOpen: false, heaterOn: false });
     },
 
     resetErrors() {
       state.errors = [];
+      // ошибки остаются в errorHistory
       if (state.cycle.currentPhase === 'ERROR') {
         state.cycle.currentPhase = 'IDLE';
         state.cycle.active = false;

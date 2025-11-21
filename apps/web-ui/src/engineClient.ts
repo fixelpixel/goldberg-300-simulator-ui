@@ -80,6 +80,7 @@ type EngineControls = {
   openDoor: () => Promise<void>;
   closeDoor: () => Promise<void>;
   resetErrors: () => void;
+  startVacuumTest: (cfg?: { stabilizationTimeSec: number; testTimeSec: number }) => Promise<void>;
 };
 
 export type EngineMode = 'local' | 'remote';
@@ -223,6 +224,14 @@ export function useEngineSimulation(mode: EngineMode = 'local', wsUrl = 'ws://lo
           return;
         }
         engineRef.current?.resetErrors();
+      },
+      startVacuumTest: async (cfg) => {
+        const payload = cfg ?? { stabilizationTimeSec: 300, testTimeSec: 300 };
+        if (mode === 'remote' && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: 'command', payload: { kind: 'start_vacuum_test', params: payload } }));
+          return;
+        }
+        return engineRef.current?.startVacuumTest(payload) ?? Promise.resolve();
       },
     }),
     [mode],

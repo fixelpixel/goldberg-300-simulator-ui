@@ -386,14 +386,14 @@ export default function GoldbergSterilizerUI() {
           <div>Цикл / контекст</div>
         </div>
         <div className="h-full overflow-y-auto text-sm">
-          {errorHistory.length === 0 ? (
+          {(state?.errorHistory?.length ?? 0) === 0 ? (
             <div className="px-4 py-4 text-slate-500 text-sm">
               Ошибок пока нет. История будет заполняться после добавления errorHistory в ядро.
             </div>
           ) : (
-            errorHistory.map((err) => (
+            (state?.errorHistory ?? []).map((err, idx) => (
               <div key={err.id} className="grid grid-cols-4 gap-0 px-4 py-2 border-b border-slate-800 text-xs">
-                <div className="text-slate-300">{err.timestamp}</div>
+                <div className="text-slate-300">{new Date(err.timestamp).toLocaleString('ru-RU')}</div>
                 <div className="font-mono text-amber-300">{err.code}</div>
                 <div className="text-slate-200">{err.message}</div>
                 <div className="text-slate-400">—</div>
@@ -406,43 +406,75 @@ export default function GoldbergSterilizerUI() {
   );
 
   // VACUUM TEST SCREEN (placeholder)
-  const VacuumTestScreen = () => (
-    <div className="flex flex-col h-full w-full bg-slate-950 text-slate-50 rounded-2xl p-6 gap-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-wide">Вакуум-тест</h1>
-        <button onClick={() => setCurrentScreen('SERVICE')} className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-sm">
-          ← Назад
-        </button>
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="rounded-2xl bg-slate-900 border border-slate-800 p-4 flex flex-col gap-3">
-          <h2 className="text-sm font-semibold text-slate-200">Параметры теста</h2>
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-slate-400">Время стабилизации</span>
-            <span className="font-mono">5 мин</span>
-          </div>
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-slate-400">Время теста</span>
-            <span className="font-mono">5 мин</span>
-          </div>
-          <p className="text-xs text-slate-500 mt-2">Параметры пока заглушки; после реализации логики в core здесь будут реальные значения.</p>
-        </div>
-        <div className="rounded-2xl bg-slate-900 border border-slate-800 p-4 flex flex-col gap-3">
-          <h2 className="text-sm font-semibold text-slate-200">Результат теста</h2>
-          <div className="flex-1 flex flex-col justify-center text-sm text-slate-400">
-            Тест ещё не выполнялся. После запуска здесь появится результат.
-          </div>
-          <button
-            type="button"
-            onClick={() => controls.startVacuumTest?.()}
-            className="mt-2 inline-flex items-center justify-center rounded-xl px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-sm font-medium disabled:opacity-50"
-          >
-            Запустить тест
+  const VacuumTestScreen = () => {
+    const vt = state?.vacuumTest;
+    const lastResult = state?.lastVacuumTests?.[0];
+    const running = vt?.active;
+    const phaseLabel =
+      vt?.phase === 'STABILIZE' ? 'Стабилизация' : vt?.phase === 'TEST' ? 'Тест' : 'Ожидание';
+    const stabMin = Math.round((vt?.stabilizationTimeSec ?? 300) / 60);
+    const testMin = Math.round((vt?.testTimeSec ?? 300) / 60);
+    return (
+      <div className="flex flex-col h-full w-full bg-slate-950 text-slate-50 rounded-2xl p-6 gap-6">
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-semibold tracking-wide">Вакуум-тест</h1>
+          <button onClick={() => setCurrentScreen('SERVICE')} className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-sm">
+            ← Назад
           </button>
         </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="rounded-2xl bg-slate-900 border border-slate-800 p-4 flex flex-col gap-3">
+            <h2 className="text-sm font-semibold text-slate-200">Параметры теста</h2>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-slate-400">Время стабилизации</span>
+              <span className="font-mono">{stabMin} мин</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-slate-400">Время теста</span>
+              <span className="font-mono">{testMin} мин</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-slate-400">Фаза</span>
+              <span className="font-mono">{phaseLabel}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-slate-400">Прошло</span>
+              <span className="font-mono">{formatNum(vt?.elapsedSec ?? 0, 0)} с</span>
+            </div>
+          </div>
+          <div className="rounded-2xl bg-slate-900 border border-slate-800 p-4 flex flex-col gap-3">
+            <h2 className="text-sm font-semibold text-slate-200">Результат теста</h2>
+            <div className="flex-1 flex flex-col justify-center text-sm text-slate-200">
+              {running && <span>Тест выполняется: {phaseLabel}</span>}
+              {!running && lastResult && (
+                <>
+                  <span className="text-lg font-semibold">
+                    {lastResult.result === 'PASS' ? 'Тест пройден' : 'Тест не пройден'}
+                  </span>
+                  <span className="text-sm text-slate-400">
+                    Утечка: {(lastResult.leakRateMPaPerMin * 1000).toFixed(3)} кПа/мин
+                  </span>
+                </>
+              )}
+              {!running && !lastResult && (
+                <span className="text-slate-400">Тест ещё не выполнялся.</span>
+              )}
+            </div>
+            <button
+              type="button"
+              disabled={running || state?.cycle.active}
+              onClick={() => controls.startVacuumTest?.({ stabilizationTimeSec: 300, testTimeSec: 300 })}
+              className={`mt-2 inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-medium disabled:opacity-50 ${
+                running || state?.cycle.active ? 'bg-slate-700 text-slate-400' : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+              }`}
+            >
+              {running ? 'Тест выполняется' : 'Запустить тест'}
+            </button>
+          </div>
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   // SYSTEM CHECK SCREEN (placeholder)
   const SystemCheckScreen = () => {
