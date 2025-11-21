@@ -29,6 +29,12 @@ export class SimulationIO implements SterilizerIO {
   private physical: InternalPhysicalState;
   private lastDt = 0;
   private ambientTemp = 22;
+  private manualOverrides: {
+    heaterOn?: boolean;
+    steamInletValveOpen?: boolean;
+    steamExhaustValveOpen?: boolean;
+    vacuumPumpOn?: boolean;
+  } = {};
 
   constructor(initial?: Partial<InternalPhysicalState>) {
     this.physical = {
@@ -185,5 +191,29 @@ export class SimulationIO implements SterilizerIO {
       this.physical.doorLocked = cmd.doorLockOn;
       this.physical.doorOpen = !cmd.doorLockOn && this.physical.doorOpen;
     }
+
+    if (this.manualOverrides.heaterOn !== undefined) this.physical.heaterOn = this.manualOverrides.heaterOn;
+    if (this.manualOverrides.steamInletValveOpen !== undefined) this.physical.steamInletValveOpen = this.manualOverrides.steamInletValveOpen;
+    if (this.manualOverrides.steamExhaustValveOpen !== undefined) this.physical.steamExhaustValveOpen = this.manualOverrides.steamExhaustValveOpen;
+    if (this.manualOverrides.vacuumPumpOn !== undefined) this.physical.vacuumPumpOn = this.manualOverrides.vacuumPumpOn;
+  }
+
+  setManualActuators(cmd: {
+    heaterOn?: boolean | null;
+    steamInletValveOpen?: boolean | null;
+    steamExhaustValveOpen?: boolean | null;
+    vacuumPumpOn?: boolean | null;
+  }) {
+    const update = (key: keyof typeof this.manualOverrides, value: boolean | null | undefined) => {
+      if (value === null) {
+        delete this.manualOverrides[key];
+      } else if (typeof value === 'boolean') {
+        this.manualOverrides[key] = value;
+      }
+    };
+    update('heaterOn', cmd.heaterOn);
+    update('steamInletValveOpen', cmd.steamInletValveOpen);
+    update('steamExhaustValveOpen', cmd.steamExhaustValveOpen);
+    update('vacuumPumpOn', cmd.vacuumPumpOn);
   }
 }

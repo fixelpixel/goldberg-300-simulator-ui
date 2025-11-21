@@ -171,6 +171,13 @@ export interface SterilizerIO {
     waterPumpOn?: boolean;
     doorLockOn?: boolean;
   }): Promise<void>;
+
+  setManualActuators?(cmd: {
+    heaterOn?: boolean | null;
+    steamInletValveOpen?: boolean | null;
+    steamExhaustValveOpen?: boolean | null;
+    vacuumPumpOn?: boolean | null;
+  }): void;
 }
 
 export interface SterilizerEngine {
@@ -189,6 +196,12 @@ export interface SterilizerEngine {
   powerFail(message?: string): void;
   continueAfterPower(): void;
   abortAfterPower(): void;
+  setManualActuators(cmd: {
+    heaterOn?: boolean | null;
+    steamInletValveOpen?: boolean | null;
+    steamExhaustValveOpen?: boolean | null;
+    vacuumPumpOn?: boolean | null;
+  }): void;
 
   resetErrors(): void;
 }
@@ -645,6 +658,10 @@ let pausedCycle: CycleRuntime | null = null;
         state.cycle.currentPhase = 'IDLE';
         state.cycle.active = false;
       }
+    },
+
+    setManualActuators(cmd) {
+      io.setManualActuators?.(cmd);
     },
   };
 }

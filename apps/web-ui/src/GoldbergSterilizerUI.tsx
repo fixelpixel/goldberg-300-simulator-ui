@@ -289,6 +289,8 @@ export default function GoldbergSterilizerUI() {
   const [phaseToast, setPhaseToast] = useState<string | null>(null);
   const [doorToast, setDoorToast] = useState<string | null>(null);
   const { playNotification } = useAudioNotifications();
+  const [engineerPanelOpen, setEngineerPanelOpen] = useState(false);
+  const [manualSteamOpen, setManualSteamOpen] = useState(false);
   const prevReadyRef = useRef(false);
   const prevCycleActiveRef = useRef(false);
   const prevSystemStateRef = useRef<SystemState>('IDLE');
@@ -363,6 +365,30 @@ export default function GoldbergSterilizerUI() {
     const t = setTimeout(() => setDoorToast(null), 2000);
     return () => clearTimeout(t);
   }, [doorOpen, doorLocked]);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key.toLowerCase() === 'e') {
+        e.preventDefault();
+        setEngineerPanelOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
+  useEffect(() => {
+    if (!engineerPanelOpen) {
+      setManualSteamOpen(false);
+      controls.setManualActuators({ steamInletValveOpen: null });
+    }
+  }, [engineerPanelOpen, controls]);
+
+  useEffect(() => {
+    return () => {
+      controls.setManualActuators({ steamInletValveOpen: null });
+    };
+  }, [controls]);
 
   useEffect(() => {
     if (ready && systemState === 'IDLE' && !prevReadyRef.current) {
@@ -528,6 +554,12 @@ export default function GoldbergSterilizerUI() {
     setCurrentScreen('MAIN');
   };
 
+  const handleManualSteamToggle = () => {
+    const next = !manualSteamOpen;
+    setManualSteamOpen(next);
+    controls.setManualActuators({ steamInletValveOpen: next ? true : null });
+  };
+
   // --- Sub-Components ---
 
   const DashboardRunning = () => {
@@ -615,6 +647,10 @@ export default function GoldbergSterilizerUI() {
         <button onClick={() => setCurrentScreen('SETTINGS')} className="flex flex-col items-start justify-between rounded-2xl bg-slate-50 border-2 border-slate-200 px-4 py-3 hover:border-cyan-500 hover:shadow">
           <span className="text-base font-semibold text-slate-800">Настройки</span>
           <span className="text-xs text-slate-500 mt-1">Дата/время, информация об устройстве.</span>
+        </button>
+        <button onClick={() => setEngineerPanelOpen(true)} className="flex flex-col items-start justify-between rounded-2xl bg-slate-900 text-white border-2 border-slate-700 px-4 py-3 hover:border-cyan-400 hover:shadow">
+          <span className="text-base font-semibold">Инженерная панель</span>
+          <span className="text-xs text-slate-300 mt-1">Ручные тесты клапанов и насосов</span>
         </button>
       </div>
     </div>
@@ -1296,6 +1332,35 @@ export default function GoldbergSterilizerUI() {
           </div>
         )}
       </footer>
+
+      {/* Engineer Panel */}
+      {engineerPanelOpen && (
+        <div className="fixed inset-0 z-[70] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-lg shadow-2xl border border-slate-200">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-2xl font-bold text-slate-800">Инженерная панель</h3>
+              <button onClick={() => setEngineerPanelOpen(false)} className="text-slate-500 hover:text-slate-700 font-bold">×</button>
+            </div>
+            <p className="text-sm text-slate-500 mb-4">
+              Панель для ручного тестирования клапанов и насосов. Доступна также по сочетанию Ctrl + E.
+            </p>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between p-3 border rounded-xl">
+                <div>
+                  <div className="font-semibold text-slate-700">Паровой клапан</div>
+                  <div className="text-xs text-slate-500">Принудительная подача пара в камеру</div>
+                </div>
+                <button
+                  onClick={handleManualSteamToggle}
+                  className={`px-4 py-2 rounded-xl font-bold ${manualSteamOpen ? 'bg-red-600 text-white' : 'bg-emerald-600 text-white'} hover:opacity-90`}
+                >
+                  {manualSteamOpen ? 'Закрыть' : 'Открыть'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* OVERLAYS */}
       

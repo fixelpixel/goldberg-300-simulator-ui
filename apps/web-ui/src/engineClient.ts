@@ -135,6 +135,7 @@ type EngineControls = {
   resetCalibrationOffsets: () => void;
   continueAfterPower: () => void;
   abortAfterPower: () => void;
+  setManualActuators: (cmd: { steamInletValveOpen?: boolean | null }) => void;
 };
 
 export type EngineMode = 'local' | 'remote';
@@ -319,6 +320,13 @@ export function useEngineSimulation(
       },
       resetCalibrationOffsets: () => {
         engineRef.current?.resetCalibrationOffsets();
+      },
+      setManualActuators: (cmd) => {
+        if (mode === 'remote') {
+          console.warn('Manual actuators are available only in local mode');
+          return;
+        }
+        engineRef.current?.setManualActuators(cmd);
       },
       continueAfterPower: () => {
         engineRef.current?.continueAfterPower();
