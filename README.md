@@ -24,5 +24,5 @@
   ```
   docker compose up --build
   ```
-  После сборки UI доступен на `http://localhost:5173`, gateway — `ws://localhost:8080`.
+  После сборки UI доступен на `http://localhost:5173`, gateway — `ws://localhost:8090`.
   (В sandbox порты не открываются, запускать на своей машине.)

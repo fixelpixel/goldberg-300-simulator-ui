@@ -85,7 +85,7 @@ type EngineControls = {
 export type EngineMode = 'local' | 'remote';
 type ConnectionStatus = 'local' | 'connecting' | 'connected' | 'disconnected' | 'fallback';
 
-export function useEngineSimulation(mode: EngineMode = 'local', wsUrl = 'ws://localhost:8080') {
+export function useEngineSimulation(mode: EngineMode = 'local', wsUrl = 'ws://localhost:8090') {
   const engineRef = useRef<SterilizerEngine | null>(null);
   const simRef = useRef<SimulationIO | null>(null);
   const wsRef = useRef<WebSocket | null>(null);

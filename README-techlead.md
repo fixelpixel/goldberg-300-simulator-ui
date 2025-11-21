@@ -127,11 +127,11 @@ npm run dev
 (Сейчас – опционально, для экспериментов)
 
 ```bash
-cd server-gateway
-npm install
-npm run build
-npm start
-# WebSocket на ws://localhost:8080
+  cd server-gateway
+  npm install
+  npm run build
+  npm start
+  # WebSocket на ws://localhost:8090
 ```
 
 По умолчанию gateway тоже использует `SimulationIO`.  

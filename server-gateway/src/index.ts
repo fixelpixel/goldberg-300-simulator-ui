@@ -6,7 +6,7 @@ import { WebSocketServer } from 'ws';
 import { createSterilizerEngine, type ProgramConfig } from '@goldberg/core-sterilizer';
 import { SimulationIO } from '@goldberg/io-simulation';
 
-const PORT = process.env.PORT ? Number(process.env.PORT) : 8080;
+const PORT = process.env.PORT ? Number(process.env.PORT) : 8090;
 
 // Примеры программ; в реальном проекте можно загрузить из config / БД.
 const programs: ProgramConfig[] = [

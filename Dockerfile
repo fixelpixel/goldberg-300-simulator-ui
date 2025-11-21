@@ -26,9 +26,9 @@ COPY --from=build /app /app
 RUN npm install -g serve tsx
 
 ENV UI_PORT=5173
-ENV GATEWAY_PORT=8080
+ENV GATEWAY_PORT=8090
 
 EXPOSE 5173
-EXPOSE 8080
+EXPOSE 8090
 
 CMD sh -c "serve -s apps/web-ui/dist -l $UI_PORT & tsx server-gateway/src/index.ts"
