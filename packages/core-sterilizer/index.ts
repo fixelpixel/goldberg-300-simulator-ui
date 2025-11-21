@@ -242,6 +242,7 @@ let sterilizationTempLowSec = 0;
   }
 
   function pushError(code: ErrorCode, message: string) {
+    if (state.cycle.currentPhase === 'ERROR') return;
     const evt: ErrorEvent = {
       id: `e_${state.errors.length + 1}_${Date.now()}`,
       code,
@@ -257,16 +258,17 @@ let sterilizationTempLowSec = 0;
   async function tick(dtMs: number) {
     // 1. Синхронизация с датчиками
     await syncSensors();
+    validateSensors();
 
     const dtSec = dtMs / 1000;
 
     // 2. Обновление таймеров фазы/цикла
-  if (state.cycle.active) {
-    state.cycle.phaseElapsedSec += dtSec;
-    state.cycle.totalElapsedSecSec += dtSec;
-    maxTemp = Math.max(maxTemp, state.chamber.temperatureC);
-    maxPressure = Math.max(maxPressure, state.chamber.pressureMPa);
-  }
+    if (state.cycle.active) {
+      state.cycle.phaseElapsedSec += dtSec;
+      state.cycle.totalElapsedSecSec += dtSec;
+      maxTemp = Math.max(maxTemp, state.chamber.temperatureC);
+      maxPressure = Math.max(maxPressure, state.chamber.pressureMPa);
+    }
 
     // 3. Упрощённая машина состояний для демо
     const program = currentProgram;
@@ -352,34 +354,46 @@ let sterilizationTempLowSec = 0;
       }
     }
 
-    // 4. TODO: проверки ошибок
-    if (state.chamber.pressureMPa > 0.28) {
-      pushError('OVERPRESSURE', 'Избыточное давление в камере');
-    }
-    if (state.generator.waterLevelPercent < 5) {
-      pushError('NO_WATER', 'Недостаточно воды в парогенераторе');
-    }
+    // 4. проверки ошибок (если не в ERROR)
+    if (state.cycle.currentPhase !== 'ERROR') {
+      if (state.chamber.pressureMPa > 0.32) {
+        pushError('OVERPRESSURE', 'Избыточное давление в камере');
+      }
+      if (state.generator.waterLevelPercent < 5) {
+        pushError('NO_WATER', 'Недостаточно воды в парогенераторе');
+      }
 
-    if (currentProgram) {
-      if (state.chamber.temperatureC > currentProgram.setTempC + 8) {
-        pushError('OVERTEMP', 'Превышение температуры в камере');
+      if (currentProgram) {
+        if (state.chamber.temperatureC > currentProgram.setTempC + 8) {
+          pushError('OVERTEMP', 'Превышение температуры в камере');
+        }
+        if (
+          state.cycle.currentPhase === 'HEAT_UP' &&
+          state.cycle.phaseElapsedSec > state.cycle.phaseTotalSec + 30 &&
+          state.chamber.temperatureC < currentProgram.setTempC - 5
+        ) {
+          pushError('HEATING_TIMEOUT', 'Не достигнута температура стерилизации');
+        }
+        if (
+          state.cycle.currentPhase === 'PREVACUUM' &&
+          state.cycle.phaseElapsedSec > state.cycle.phaseTotalSec + 5 &&
+          state.chamber.pressureMPa > 0.05
+        ) {
+          pushError('VACUUM_FAIL', 'Не удалось достичь вакуума');
+        }
+        if (
+          state.cycle.currentPhase === 'DRYING' &&
+          state.cycle.phaseElapsedSec > state.cycle.phaseTotalSec + 60
+        ) {
+          pushError('HEATING_TIMEOUT', 'Сушка превысила допустимое время');
+        }
+        if (state.cycle.currentPhase === 'STERILIZATION' && sterilizationTempLowSec > 30) {
+          pushError('HEATING_TIMEOUT', 'Температура стерилизации держится ниже нормы');
+        }
       }
-      if (state.cycle.currentPhase === 'HEAT_UP' && state.cycle.phaseElapsedSec > state.cycle.phaseTotalSec + 30 && state.chamber.temperatureC < currentProgram.setTempC - 5) {
-        pushError('HEATING_TIMEOUT', 'Не достигнута температура стерилизации');
+      if (state.cycle.active && state.door.open) {
+        pushError('DOOR_OPEN', 'Дверь открыта во время цикла');
       }
-      if (state.cycle.currentPhase === 'PREVACUUM' && state.cycle.phaseElapsedSec > state.cycle.phaseTotalSec + 5 && state.chamber.pressureMPa > 0.05) {
-        pushError('VACUUM_FAIL', 'Не удалось достичь вакуума');
-      }
-      if (state.cycle.currentPhase === 'DRYING' && state.cycle.phaseElapsedSec > state.cycle.phaseTotalSec + 60) {
-        pushError('HEATING_TIMEOUT', 'Сушка превысила допустимое время');
-      }
-      if (state.cycle.currentPhase === 'STERILIZATION' && sterilizationTempLowSec > 30) {
-        pushError('HEATING_TIMEOUT', 'Температура стерилизации держится ниже нормы');
-      }
-    }
-    // Безопасность двери: если в цикле дверь открылась — авария
-    if (state.cycle.active && state.door.open) {
-      pushError('DOOR_OPEN', 'Дверь открыта во время цикла');
     }
 
     lastTickMs = now();

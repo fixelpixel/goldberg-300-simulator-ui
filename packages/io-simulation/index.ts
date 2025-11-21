@@ -60,8 +60,8 @@ export class SimulationIO implements SterilizerIO {
 
     // Простейшая модель нагрева парогенератора
     if (p.heaterOn && p.waterLevelPercent > 0) {
-      p.generatorTemperatureC += 2.5 * dtSec;
-      p.waterLevelPercent -= 0.04 * dtSec; // расход воды при нагреве
+      p.generatorTemperatureC += 2.0 * dtSec;
+      p.waterLevelPercent -= 0.03 * dtSec; // расход воды при нагреве
     } else {
       // медленное охлаждение к окружающей температуре
       const cool = (p.generatorTemperatureC - this.ambientTemp) * 0.01 * dtSec;
@@ -76,7 +76,7 @@ export class SimulationIO implements SterilizerIO {
 
     // Заполнение камеры паром
     if (p.steamInletValveOpen) {
-      const delta = (p.generatorPressureMPa - p.chamberPressureMPa) * 0.7 * dtSec;
+      const delta = (p.generatorPressureMPa - p.chamberPressureMPa) * 0.55 * dtSec;
       p.chamberPressureMPa += delta;
       // нагрев камеры стремится к температуре генератора
       const target = Math.max(p.chamberTemperatureC, p.generatorTemperatureC - 5);
